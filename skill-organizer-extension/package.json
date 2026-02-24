@@ -1,0 +1,199 @@
+{
+  "name": "skill-organizer-extension",
+  "displayName": "Skill Organizer",
+  "description": "Import and manage reusable AI skills from GitHub repos, skills.sh URLs, and local folders.",
+  "version": "0.0.1",
+  "publisher": "unthinkmedia",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "skillOrganizer",
+          "title": "Skill Organizer",
+          "icon": "media/skill-organizer.svg"
+        }
+      ]
+    },
+    "views": {
+      "skillOrganizer": [
+        {
+          "id": "skillOrganizer.skills",
+          "name": "Skills",
+          "icon": "media/skill-organizer.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "skillOrganizer.addSource",
+        "title": "Add Source",
+        "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.openActionMenu",
+        "title": "Actions",
+        "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.addGitHubSource",
+        "title": "Add GitHub Source",
+        "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.addFromSkillsSh",
+        "title": "Add from skills.sh URL",
+        "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.chooseGitHubAccount",
+        "title": "Choose GitHub Account",
+        "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.removeSource",
+        "title": "Remove Source",
+        "category": "Skill Organizer",
+        "icon": {
+          "light": "media/trash-light.svg",
+          "dark": "media/trash-dark.svg"
+        }
+      },
+      {
+        "command": "skillOrganizer.refresh",
+        "title": "Refresh Skills",
+        "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.toggleSkill",
+        "title": "Enable or Disable Skill",
+        "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.removeFromWorkspace",
+        "title": "Remove from Workspace Enabled",
+        "category": "Skill Organizer",
+        "icon": {
+          "light": "media/trash-light.svg",
+          "dark": "media/trash-dark.svg"
+        }
+      },
+      {
+        "command": "skillOrganizer.removeFromGlobalDefaults",
+        "title": "Remove from Global Defaults",
+        "category": "Skill Organizer",
+        "icon": {
+          "light": "media/trash-light.svg",
+          "dark": "media/trash-dark.svg"
+        }
+      },
+      {
+        "command": "skillOrganizer.setGlobalDefault",
+        "title": "Toggle Global Default",
+        "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.applyGlobalProfile",
+        "title": "Apply Global Profile to Workspace",
+        "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.materializeEnabledSkills",
+        "title": "Materialize Enabled Skills to Workspace",
+        "category": "Skill Organizer"
+      }
+    ],
+    "configuration": {
+      "title": "Skill Organizer",
+      "properties": {
+        "skillOrganizer.destinationPath": {
+          "type": "string",
+          "default": ".github/skills",
+          "description": "Workspace-relative path where enabled skills are copied when materialized."
+        },
+        "skillOrganizer.materializationMode": {
+          "type": "string",
+          "enum": ["copy"],
+          "default": "copy",
+          "description": "How skills are materialized into the workspace. V1 supports copy mode only."
+        }
+      }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "skillOrganizer.addSource",
+          "when": "view == skillOrganizer.skills",
+          "group": "navigation"
+        },
+        {
+          "command": "skillOrganizer.openActionMenu",
+          "when": "view == skillOrganizer.skills",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "skillOrganizer.removeSource",
+          "when": "view == skillOrganizer.skills && viewItem == sourceItem",
+          "group": "inline"
+        },
+        {
+          "command": "skillOrganizer.toggleSkill",
+          "when": "view == skillOrganizer.skills && viewItem == sourceSkillItem",
+          "group": "inline"
+        },
+        {
+          "command": "skillOrganizer.setGlobalDefault",
+          "when": "view == skillOrganizer.skills && viewItem == sourceSkillItem",
+          "group": "navigation"
+        },
+        {
+          "command": "skillOrganizer.removeFromWorkspace",
+          "when": "view == skillOrganizer.skills && viewItem == workspaceSkillItem",
+          "group": "inline"
+        },
+        {
+          "command": "skillOrganizer.removeFromGlobalDefaults",
+          "when": "view == skillOrganizer.skills && viewItem == globalSkillItem",
+          "group": "inline"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "skillOrganizer.addGitHubSource",
+          "when": "false"
+        },
+        {
+          "command": "skillOrganizer.addFromSkillsSh",
+          "when": "false"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "skillOrganizer.skills",
+        "contents": "No sources configured yet. [Add your first source](command:skillOrganizer.addSource)"
+      },
+      {
+        "view": "skillOrganizer.skills",
+        "contents": "Use [Actions](command:skillOrganizer.openActionMenu) for refresh, profile apply, and materialization."
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.12",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.8.2"
+  }
+}
