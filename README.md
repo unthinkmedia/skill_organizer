@@ -1,20 +1,40 @@
-# Skill Organizer Extension (MVP)
+# Skill Organizer
 
-This extension bootstraps skill imports from external repositories into your workspace.
+Bring your best AI skills into every workspace without repetitive copy/paste.
 
-## Current MVP
+Import reusable skills from GitHub and `skills.sh`, choose what belongs in the current workspace, and keep materialized files in sync.
 
-- Add source from one entry point (`Add Source`) with provider selection
-- Add GitHub source repos (public/private using local git credentials)
-- Add GitHub tree folder URLs (for example `.../tree/main/tools/skills`)
-- Add source from `skills.sh` URL
-- Discover skills from known folder patterns
-- Enable or disable skills per workspace
-- Auto-sync enabled skills into workspace files (`.github/skills` by default)
-- Toggle global default state per skill
-- Apply global defaults into the active workspace
-- Sync workspace skills into `.github/skills` based on current selections
-- Organized tree sections with iconography: Sources, Workspace Enabled, Global Defaults
+## Why Skill Organizer
+
+- Centralize reusable skills from multiple sources.
+- Enable only what you need per workspace.
+- Keep a global default profile for your go-to skills.
+- Materialize selected skills into `.github/skills` automatically.
+- Manage everything from a single, structured tree view.
+
+## Key Features
+
+- One-click `Add Source` flow with provider selection.
+- GitHub repository source support (public or private with local git credentials).
+- GitHub `tree` URL support (for example: `.../tree/main/tools/skills`).
+- Direct import from `skills.sh` URLs.
+- Skill discovery from common folder patterns.
+- Workspace-level enable and disable controls.
+- Global default toggle per skill.
+- Apply global profile into the active workspace.
+- Sync selected workspace skills into destination files.
+- Organized sections in the Skills view:
+  - Sources
+  - Workspace Enabled
+  - Global Defaults
+
+## Quick Start
+
+1. Open the **Skill Organizer** view in the Activity Bar.
+2. Run `Skill Organizer: Add Source`.
+3. Choose GitHub or `skills.sh`, then provide the source URL.
+4. Enable the skills you want.
+5. Run `Skill Organizer: Sync Workspace Skills` to materialize into `.github/skills`.
 
 ## Commands
 
@@ -30,6 +50,14 @@ Most management actions are also available from the `...` title menu in the Skil
 
 ## Configuration
 
-- `skillOrganizer.destinationPath`: workspace-relative destination for materialized skills (default: `.github/skills`)
-- `skillOrganizer.materializationMode`: currently supports `copy`
+- `skillOrganizer.destinationPath`
+  - Workspace-relative destination for materialized skills.
+  - Default: `.github/skills`
+- `skillOrganizer.materializationMode`
+  - Materialization strategy.
+  - Current supported value: `copy`
 
+## Repository
+
+- Source: `https://github.com/unthinkmedia/skill_organizer`
+- Issues: `https://github.com/unthinkmedia/skill_organizer/issues`

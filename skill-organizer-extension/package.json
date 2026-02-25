@@ -26,6 +26,7 @@
   "categories": [
     "Other"
   ],
+  "icon": "media/icon-128.png",
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
