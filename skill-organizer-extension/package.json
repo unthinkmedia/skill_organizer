@@ -261,9 +261,10 @@
     ]
   },
   "scripts": {
+    "sync:readme": "node -e \"require('fs').copyFileSync('../README.md','./README.md')\"",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run sync:readme && npm run compile",
     "package": "npx @vscode/vsce package",
     "publish:patch": "npx @vscode/vsce publish patch"
   },

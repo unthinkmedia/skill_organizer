@@ -4,6 +4,8 @@ Bring your best AI skills into every workspace without repetitive copy/paste.
 
 Import reusable skills from GitHub and `skills.sh`, choose what belongs in the current workspace, and keep materialized files in sync.
 
+![Skill Organizer preview](https://raw.githubusercontent.com/unthinkmedia/skill_organizer/main/skill-organizer-extension/media/marketplace-preview.png)
+
 ## Why Skill Organizer
 
 - Centralize reusable skills from multiple sources.
@@ -24,9 +26,9 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 - Apply global profile into the active workspace.
 - Sync selected workspace skills into destination files.
 - Organized sections in the Skills view:
-	- Sources
-	- Workspace Enabled
-	- Global Defaults
+  - Sources
+  - Workspace Enabled
+  - Global Defaults
 
 ## Quick Start
 
@@ -51,11 +53,11 @@ Most management actions are also available from the `...` title menu in the Skil
 ## Configuration
 
 - `skillOrganizer.destinationPath`
-	- Workspace-relative destination for materialized skills.
-	- Default: `.github/skills`
+  - Workspace-relative destination for materialized skills.
+  - Default: `.github/skills`
 - `skillOrganizer.materializationMode`
-	- Materialization strategy.
-	- Current supported value: `copy`
+  - Materialization strategy.
+  - Current supported value: `copy`
 
 ## Repository
 

@@ -4,6 +4,8 @@ Bring your best AI skills into every workspace without repetitive copy/paste.
 
 Import reusable skills from GitHub and `skills.sh`, choose what belongs in the current workspace, and keep materialized files in sync.
 
+![Skill Organizer preview](https://raw.githubusercontent.com/unthinkmedia/skill_organizer/main/skill-organizer-extension/media/marketplace-preview.png)
+
 ## Why Skill Organizer
 
 - Centralize reusable skills from multiple sources.
