@@ -1,9 +1,12 @@
 import * as fs from "fs/promises";
 import * as path from "path";
+import * as crypto from "crypto";
 import * as vscode from "vscode";
 import { SkillItem } from "./types";
 
-export async function materializeSkillsToWorkspace(skills: SkillItem[]): Promise<{ outputPath: string; copied: number }> {
+const MANIFEST_FILE = ".skill-organizer.manifest.json";
+
+export async function materializeSkillsToWorkspace(skills: SkillItem[]): Promise<{ outputPath: string; copied: number; removed: number }> {
   const workspaceFolder = getPrimaryWorkspaceFolder();
   const config = vscode.workspace.getConfiguration("skillOrganizer");
   const destinationPath = config.get<string>("destinationPath", ".github/skills");
@@ -11,11 +14,20 @@ export async function materializeSkillsToWorkspace(skills: SkillItem[]): Promise
   const outputPath = path.join(workspaceFolder.uri.fsPath, destinationPath);
   await fs.mkdir(outputPath, { recursive: true });
 
-  let copied = 0;
-  const usedNames = new Set<string>();
+  const materializationPlan = skills.map((skill) => ({
+    skill,
+    folderName: createStableTargetFolderName(skill)
+  }));
+  const expectedFolders = new Set(materializationPlan.map((entry) => entry.folderName));
 
-  for (const skill of skills) {
-    const folderName = createTargetFolderName(skill, usedNames);
+  const previouslyManaged = await readManagedFolders(outputPath);
+  const foldersToRemove = [...previouslyManaged].filter((folder) => !expectedFolders.has(folder));
+  for (const folderName of foldersToRemove) {
+    await fs.rm(path.join(outputPath, folderName), { recursive: true, force: true });
+  }
+
+  let copied = 0;
+  for (const { skill, folderName } of materializationPlan) {
     const targetPath = path.join(outputPath, folderName);
 
     await fs.rm(targetPath, { recursive: true, force: true });
@@ -23,7 +35,9 @@ export async function materializeSkillsToWorkspace(skills: SkillItem[]): Promise
     copied += 1;
   }
 
-  return { outputPath, copied };
+  await writeManagedFolders(outputPath, [...expectedFolders]);
+
+  return { outputPath, copied, removed: foldersToRemove.length };
 }
 
 function getPrimaryWorkspaceFolder(): vscode.WorkspaceFolder {
@@ -35,32 +49,39 @@ function getPrimaryWorkspaceFolder(): vscode.WorkspaceFolder {
   return folders[0];
 }
 
-function createTargetFolderName(skill: SkillItem, usedNames: Set<string>): string {
+function createStableTargetFolderName(skill: SkillItem): string {
   const base = sanitizeFolderName(skill.slug);
-
-  if (!usedNames.has(base)) {
-    usedNames.add(base);
-    return base;
-  }
-
-  const withSource = `${base}-${skill.sourceId.slice(0, 6)}`;
-  if (!usedNames.has(withSource)) {
-    usedNames.add(withSource);
-    return withSource;
-  }
-
-  let i = 2;
-  while (true) {
-    const candidate = `${withSource}-${i}`;
-    if (!usedNames.has(candidate)) {
-      usedNames.add(candidate);
-      return candidate;
-    }
-    i += 1;
-  }
+  const suffix = crypto.createHash("sha1").update(skill.id).digest("hex").slice(0, 8);
+  return `${base}-${suffix}`;
 }
 
 function sanitizeFolderName(input: string): string {
   const normalized = input.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/-+/g, "-");
   return normalized || "skill";
+}
+
+async function readManagedFolders(outputPath: string): Promise<Set<string>> {
+  const manifestPath = path.join(outputPath, MANIFEST_FILE);
+
+  try {
+    const raw = await fs.readFile(manifestPath, "utf8");
+    const parsed = JSON.parse(raw) as { managedFolders?: unknown };
+    if (!Array.isArray(parsed.managedFolders)) {
+      throw new Error("invalid manifest");
+    }
+
+    const folders = parsed.managedFolders.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+    return new Set(folders);
+  } catch {
+    // Legacy fallback: before manifest existed, assume current top-level directories were managed.
+    const entries = await fs.readdir(outputPath, { withFileTypes: true });
+    const folderNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    return new Set(folderNames);
+  }
+}
+
+async function writeManagedFolders(outputPath: string, folders: string[]): Promise<void> {
+  const manifestPath = path.join(outputPath, MANIFEST_FILE);
+  const payload = JSON.stringify({ managedFolders: [...folders].sort() }, null, 2);
+  await fs.writeFile(manifestPath, `${payload}\n`, "utf8");
 }

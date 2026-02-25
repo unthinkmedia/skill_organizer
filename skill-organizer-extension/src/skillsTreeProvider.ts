@@ -54,8 +54,11 @@ export class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNod
 
       if (element.sectionType === "workspace") {
         const nodes = [...workspaceEnabled]
-          .map((skillId) => allSkills.find((skill) => skill.id === skillId))
-          .map((skill) => toWorkspaceSkillNode(skill))
+          .map((skillId) => ({
+            skill: allSkills.find((candidate) => candidate.id === skillId),
+            globalDefault: globalDefaults.has(skillId)
+          }))
+          .map(({ skill, globalDefault }) => toWorkspaceSkillNode(skill, globalDefault))
           .filter((node): node is SkillTreeNode | MessageTreeNode => Boolean(node));
 
         return nodes.length > 0 ? nodes : [new MessageTreeNode("No skills enabled", "Toggle a skill to enable it", "circle-large-outline")];
@@ -171,19 +174,22 @@ function toSkillNode(
   return new SkillTreeNode(item, skill, enabled, globalDefault);
 }
 
-function toWorkspaceSkillNode(skill: SkillItem | undefined): SkillTreeNode | MessageTreeNode | undefined {
+function toWorkspaceSkillNode(
+  skill: SkillItem | undefined,
+  globalDefault: boolean
+): SkillTreeNode | MessageTreeNode | undefined {
   if (!skill) {
     return new MessageTreeNode("Missing skill", "Source no longer provides this skill", "warning");
   }
 
   const item = new vscode.TreeItem(skill.slug, vscode.TreeItemCollapsibleState.None);
   item.id = createTreeItemId(skill.id, "workspace");
-  item.contextValue = "workspaceSkillItem";
-  item.description = skill.relativePath;
-  item.tooltip = `${skill.relativePath}\nEnabled in workspace`;
+  item.contextValue = globalDefault ? "workspaceSkillItemGlobal" : "workspaceSkillItem";
+  item.description = globalDefault ? `${skill.relativePath} | global` : skill.relativePath;
+  item.tooltip = `${skill.relativePath}\nEnabled in workspace${globalDefault ? "\nGlobal default" : ""}`;
   item.iconPath = new vscode.ThemeIcon("check");
 
-  return new SkillTreeNode(item, skill, true, false);
+  return new SkillTreeNode(item, skill, true, globalDefault);
 }
 
 function toGlobalSkillNode(skill: SkillItem | undefined): SkillTreeNode | MessageTreeNode | undefined {

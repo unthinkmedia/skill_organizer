@@ -96,7 +96,20 @@
       {
         "command": "skillOrganizer.setGlobalDefault",
         "title": "Toggle Global Default",
-        "category": "Skill Organizer"
+        "category": "Skill Organizer",
+        "icon": {
+          "light": "media/star-outline-light.svg",
+          "dark": "media/star-outline-dark.svg"
+        }
+      },
+      {
+        "command": "skillOrganizer.unsetGlobalDefault",
+        "title": "Toggle Global Default",
+        "category": "Skill Organizer",
+        "icon": {
+          "light": "media/star-light.svg",
+          "dark": "media/star-dark.svg"
+        }
       },
       {
         "command": "skillOrganizer.applyGlobalProfile",
@@ -104,8 +117,13 @@
         "category": "Skill Organizer"
       },
       {
-        "command": "skillOrganizer.materializeEnabledSkills",
-        "title": "Materialize Enabled Skills to Workspace",
+        "command": "skillOrganizer.syncWorkspaceSkills",
+        "title": "Sync Workspace Skills",
+        "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.extendAgents",
+        "title": "Extend AGENTS.md",
         "category": "Skill Organizer"
       }
     ],
@@ -129,6 +147,11 @@
       "view/title": [
         {
           "command": "skillOrganizer.addSource",
+          "when": "view == skillOrganizer.skills",
+          "group": "navigation"
+        },
+        {
+          "command": "skillOrganizer.extendAgents",
           "when": "view == skillOrganizer.skills",
           "group": "navigation"
         },
@@ -160,6 +183,21 @@
           "group": "inline"
         },
         {
+          "command": "skillOrganizer.setGlobalDefault",
+          "when": "view == skillOrganizer.skills && viewItem == workspaceSkillItem",
+          "group": "inline"
+        },
+        {
+          "command": "skillOrganizer.removeFromWorkspace",
+          "when": "view == skillOrganizer.skills && viewItem == workspaceSkillItemGlobal",
+          "group": "inline"
+        },
+        {
+          "command": "skillOrganizer.unsetGlobalDefault",
+          "when": "view == skillOrganizer.skills && viewItem == workspaceSkillItemGlobal",
+          "group": "inline"
+        },
+        {
           "command": "skillOrganizer.removeFromGlobalDefaults",
           "when": "view == skillOrganizer.skills && viewItem == globalSkillItem",
           "group": "inline"
@@ -183,7 +221,7 @@
       },
       {
         "view": "skillOrganizer.skills",
-        "contents": "Use [Actions](command:skillOrganizer.openActionMenu) for refresh, profile apply, and materialization."
+        "contents": "Use [Actions](command:skillOrganizer.openActionMenu) for refresh, profile apply, and workspace sync."
       }
     ]
   },

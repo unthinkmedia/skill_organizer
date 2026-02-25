@@ -13,7 +13,7 @@ This extension bootstraps skill imports from external repositories into your wor
 - Auto-sync enabled skills into workspace files (`.github/skills` by default)
 - Toggle global default state per skill
 - Apply global defaults into the active workspace
-- Materialize enabled skills into workspace files (`.github/skills` by default)
+- Sync workspace skills into `.github/skills` based on current selections
 - Organized tree sections with iconography: Sources, Workspace Enabled, Global Defaults
 
 ## Commands
@@ -21,10 +21,11 @@ This extension bootstraps skill imports from external repositories into your wor
 - `Skill Organizer: Add Source`
 - `Skill Organizer: Actions`
 - `Skill Organizer: Refresh Skills`
+- `Skill Organizer: Extend AGENTS.md`
 - `Skill Organizer: Enable or Disable Skill`
 - `Skill Organizer: Toggle Global Default`
 - `Skill Organizer: Apply Global Profile to Workspace`
-- `Skill Organizer: Materialize Enabled Skills to Workspace`
+- `Skill Organizer: Sync Workspace Skills`
 
 ## Configuration
 

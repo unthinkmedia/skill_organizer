@@ -5,6 +5,78 @@ import { SourceManager } from "./sourceManager";
 import { StateStore } from "./stateStore";
 
 const DEFAULT_SKILLS_SOURCE = "https://github.com/anthropics/skills";
+const DEFAULT_AGENTS_MD = `# AGENTS.md
+
+Global governance loaded on every prompt. Keep this file minimal.
+
+## Scope
+
+- Applies to the entire repo.
+- Include only invariants required for consistent skill triggering and safe operation.
+
+## Triggering And Progressive Disclosure
+
+- Keep metadata and top-level guidance concise so skills trigger reliably.
+- Put detailed procedures, examples, and checklists in skill-local references loaded on demand.
+
+## Tool-First Rule
+
+- Prefer tool-driven verification over speculation.
+- Cite concrete repo evidence (files, command outputs) when asserting status.
+
+## Routing Mechanics
+
+- Prefer native VS Code UI first.
+- Use custom editors for specialized file editing/viewing.
+- Use WebViews only when native UI and custom editors cannot meet requirements.
+
+## Basic Verification
+
+- Validate changed behavior with explicit checks before sign-off.
+- Do not mark work complete when required build/test/package checks fail.
+
+## Output Preference
+
+- Default to short, scannable responses.
+- Expand only when complexity or user request requires it.
+
+## Placement Rule
+
+- Do not store procedural governance details in \`.github/AGENTS.md\`.
+- Put skill-creation governance in \`.github/skills/skill-creator/references/governance.md\`.
+`;
+const EXTEND_AGENTS_PROMPT = `Review this repository's skill system governance and recommend updates to .github/AGENTS.md.
+
+Scope:
+- Analyze all skill definitions and references under:
+  - .github/skills/**/SKILL.md
+  - .github/skills/**/references/*.md
+- Also consider repository instruction files under:
+  - .github/instructions/*.md
+
+Goal:
+- Identify rules that should be globally enforced in .github/AGENTS.md so they are applied to every prompt.
+- Distinguish global rules from skill-specific rules that should remain in skill docs.
+
+Required .github/AGENTS.md scope:
+- Routing and UI selection policy
+- WebView security/accessibility invariants
+- Scaffold and lifecycle minimums
+- Icon policy baseline
+- Verification and release evidence requirements
+
+Output format (concise):
+1) Return ONLY a unified diff for .github/AGENTS.md (no full file dump).
+2) Then provide a short review summary with:
+- Max 8 bullets total.
+- Added rules.
+- Rules intentionally excluded because they are skill-local.
+- Top 2 drift risks.
+
+Constraints:
+- Do not restate detailed procedural checklists already covered in skill references.
+- Prefer short policy statements with explicit MUST/SHOULD wording.
+- Cite recommendations with concrete repo file references in the summary bullets only.`;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const stateStore = new StateStore(context);
@@ -121,8 +193,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { label: "$(account) Choose GitHub Account", description: "Set preferred auth account for private repos", command: "skillOrganizer.chooseGitHubAccount" },
         { label: "$(trash) Remove Source", description: "Delete a configured source", command: "skillOrganizer.removeSource" },
         { label: "$(refresh) Refresh Sources", description: "Pull latest source changes", command: "skillOrganizer.refresh" },
+        { label: "$(comment-discussion) Extend AGENTS.md", description: "Open Copilot Chat with AGENTS governance prompt", command: "skillOrganizer.extendAgents" },
         { label: "$(star-full) Apply Global Profile", description: "Enable global defaults in this workspace", command: "skillOrganizer.applyGlobalProfile" },
-        { label: "$(files) Materialize Enabled Skills", description: "Copy enabled skills into workspace", command: "skillOrganizer.materializeEnabledSkills" }
+        { label: "$(files) Sync Workspace Skills", description: "Make .github/skills match current selections", command: "skillOrganizer.syncWorkspaceSkills" }
       ],
       { title: "Skill Organizer Actions" }
     );
@@ -191,24 +264,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   });
 
-  const setGlobalDefault = vscode.commands.registerCommand("skillOrganizer.setGlobalDefault", async (skillId?: string) => {
-    const resolvedSkillId = await resolveSkillId(skillId, sourceManager);
-    if (!resolvedSkillId) {
-      return;
-    }
-
-    await runCommand(async () => {
-      const current = new Set(stateStore.getGlobalDefaults());
-      if (current.has(resolvedSkillId)) {
-        current.delete(resolvedSkillId);
-      } else {
-        current.add(resolvedSkillId);
+  const setGlobalDefault = vscode.commands.registerCommand(
+    "skillOrganizer.setGlobalDefault",
+    async (skillArg?: string | SkillTreeNode) => {
+      const resolvedSkillId = await resolveSkillIdFromTreeArgument(skillArg, sourceManager);
+      if (!resolvedSkillId) {
+        return;
       }
 
-      await stateStore.saveGlobalDefaults([...current]);
-      treeProvider.refresh();
-    });
-  });
+      await runCommand(async () => {
+        const current = new Set(stateStore.getGlobalDefaults());
+        current.add(resolvedSkillId);
+
+        await stateStore.saveGlobalDefaults([...current]);
+        treeProvider.refresh();
+      });
+    }
+  );
+
+  const unsetGlobalDefault = vscode.commands.registerCommand(
+    "skillOrganizer.unsetGlobalDefault",
+    async (skillArg?: string | SkillTreeNode) => {
+      const resolvedSkillId = await resolveSkillIdFromTreeArgument(skillArg, sourceManager);
+      if (!resolvedSkillId) {
+        return;
+      }
+
+      await runCommand(async () => {
+        const current = new Set(stateStore.getGlobalDefaults());
+        current.delete(resolvedSkillId);
+
+        await stateStore.saveGlobalDefaults([...current]);
+        treeProvider.refresh();
+      });
+    }
+  );
 
   const removeFromWorkspace = vscode.commands.registerCommand(
     "skillOrganizer.removeFromWorkspace",
@@ -289,11 +379,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   });
 
-  const materializeEnabledSkills = vscode.commands.registerCommand("skillOrganizer.materializeEnabledSkills", async () => {
+  const syncWorkspaceSkills = vscode.commands.registerCommand("skillOrganizer.syncWorkspaceSkills", async () => {
     await runCommand(async () => {
       const enabledIds = stateStore.getWorkspaceEnabled();
       if (enabledIds.length === 0) {
-        vscode.window.showInformationMessage("No enabled skills to materialize in this workspace.");
+        const result = await runWithProgress("Syncing materialized skills", async () => {
+          return materializeSkillsToWorkspace([]);
+        });
+
+        vscode.window.showInformationMessage(`No skills enabled. Removed ${result.removed} materialized skill folder(s).`);
         return;
       }
 
@@ -309,7 +403,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return materializeSkillsToWorkspace(skills);
       });
 
-      vscode.window.showInformationMessage(`Materialized ${result.copied} skill(s) to ${result.outputPath}.`);
+      vscode.window.showInformationMessage(`Materialized ${result.copied} skill(s) to ${result.outputPath}. Removed ${result.removed} stale folder(s).`);
+    });
+  });
+
+  const extendAgents = vscode.commands.registerCommand("skillOrganizer.extendAgents", async () => {
+    await runCommand(async () => {
+      const locationStatus = await normalizeAgentsFileLocation();
+      if (locationStatus === "moved") {
+        vscode.window.showInformationMessage("Moved AGENTS.md to .github/AGENTS.md.");
+      }
+      if (locationStatus === "duplicate") {
+        vscode.window.showWarningMessage("Found both AGENTS.md and .github/AGENTS.md. Using .github/AGENTS.md and leaving root file unchanged.");
+      }
+
+      const created = await ensureAgentsFileExists();
+      if (created) {
+        vscode.window.showInformationMessage(".github/AGENTS.md was missing and has been recreated.");
+      }
+
+      const sent = await openCopilotChatWithPrompt(EXTEND_AGENTS_PROMPT);
+      if (sent) {
+        vscode.window.showInformationMessage("Opened Copilot Chat with the Extend AGENTS.md prompt.");
+        return;
+      }
+
+      await vscode.env.clipboard.writeText(EXTEND_AGENTS_PROMPT);
+      await openCopilotChat();
+      vscode.window.showInformationMessage("Prompt copied. Paste into Copilot Chat to extend AGENTS.md.");
     });
   });
 
@@ -324,10 +445,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     refresh,
     toggleSkill,
     setGlobalDefault,
+    unsetGlobalDefault,
     removeFromWorkspace,
     removeFromGlobalDefaults,
     applyGlobalProfile,
-    materializeEnabledSkills
+    syncWorkspaceSkills,
+    extendAgents
   );
 }
 
@@ -416,6 +539,7 @@ async function enableSkillInWorkspace(skillId: string, stateStore: StateStore): 
 async function syncMaterializedEnabledSkills(sourceManager: SourceManager, stateStore: StateStore): Promise<void> {
   const enabledIds = stateStore.getWorkspaceEnabled();
   if (enabledIds.length === 0) {
+    await materializeSkillsToWorkspace([]);
     return;
   }
 
@@ -496,4 +620,93 @@ function getSourceLabel(uri: string): string {
   }
 
   return uri;
+}
+
+async function openCopilotChat(): Promise<void> {
+  const commandIds = [
+    "workbench.action.chat.open",
+    "workbench.action.chat.newChat",
+    "github.copilot.chat.open",
+    "github.copilot.chat.focus"
+  ];
+
+  for (const commandId of commandIds) {
+    try {
+      await vscode.commands.executeCommand(commandId);
+      return;
+    } catch {
+      // Try the next possible command id across VS Code/Copilot versions.
+    }
+  }
+}
+
+async function openCopilotChatWithPrompt(prompt: string): Promise<boolean> {
+  const commandAttempts: Array<{ id: string; args: unknown[] }> = [
+    { id: "workbench.action.chat.open", args: [{ query: prompt, newChat: true }] },
+    { id: "workbench.action.chat.open", args: [prompt] },
+    { id: "github.copilot.chat.open", args: [{ query: prompt, newChat: true }] },
+    { id: "github.copilot.chat.open", args: [prompt] }
+  ];
+
+  for (const attempt of commandAttempts) {
+    try {
+      await vscode.commands.executeCommand(attempt.id, ...attempt.args);
+      return true;
+    } catch {
+      // Fall through and try alternative command/argument shapes.
+    }
+  }
+
+  return false;
+}
+
+async function ensureAgentsFileExists(): Promise<boolean> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    return false;
+  }
+
+  const agentsDirUri = vscode.Uri.joinPath(workspaceFolder.uri, ".github");
+  const agentsUri = vscode.Uri.joinPath(workspaceFolder.uri, ".github", "AGENTS.md");
+  try {
+    await vscode.workspace.fs.stat(agentsUri);
+    return false;
+  } catch {
+    await vscode.workspace.fs.createDirectory(agentsDirUri);
+    await vscode.workspace.fs.writeFile(agentsUri, Buffer.from(DEFAULT_AGENTS_MD, "utf8"));
+    return true;
+  }
+}
+
+async function normalizeAgentsFileLocation(): Promise<"none" | "moved" | "duplicate"> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    return "none";
+  }
+
+  const rootAgentsUri = vscode.Uri.joinPath(workspaceFolder.uri, "AGENTS.md");
+  const githubAgentsUri = vscode.Uri.joinPath(workspaceFolder.uri, ".github", "AGENTS.md");
+
+  const rootExists = await uriExists(rootAgentsUri);
+  if (!rootExists) {
+    return "none";
+  }
+
+  const githubExists = await uriExists(githubAgentsUri);
+  if (githubExists) {
+    return "duplicate";
+  }
+
+  await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(workspaceFolder.uri, ".github"));
+  await vscode.workspace.fs.rename(rootAgentsUri, githubAgentsUri, { overwrite: false });
+  return "moved";
+}
+
+async function uriExists(uri: vscode.Uri): Promise<boolean> {
+  try {
+    await vscode.workspace.fs.stat(uri);
+    return true;
+  } catch {
+    return false;
+  }
 }
