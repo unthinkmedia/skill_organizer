@@ -57,38 +57,6 @@ Most management actions are also available from the `...` title menu in the Skil
 	- Materialization strategy.
 	- Current supported value: `copy`
 
-## Build and Package
-
-```bash
-npm ci
-npm run compile
-npm run package
-```
-
-This creates a `.vsix` package for local install or sharing.
-
-## Install from VSIX
-
-```bash
-code --install-extension skill-organizer-extension-0.0.1.vsix
-```
-
-## Publish to VS Code Marketplace
-
-1. Create a Marketplace publisher named `unthinkmedia`.
-2. Create an Azure DevOps PAT with Marketplace manage permissions.
-3. Authenticate once:
-
-```bash
-npx @vscode/vsce login unthinkmedia
-```
-
-4. Publish:
-
-```bash
-npm run publish:patch
-```
-
 ## Repository
 
 - Source: `https://github.com/unthinkmedia/skill_organizer`
