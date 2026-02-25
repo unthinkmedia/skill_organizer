@@ -4,6 +4,22 @@
   "description": "Import and manage reusable AI skills from GitHub repos, skills.sh URLs, and local folders.",
   "version": "0.0.1",
   "publisher": "unthinkmedia",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/unthinkmedia/skill_organizer.git"
+  },
+  "homepage": "https://github.com/unthinkmedia/skill_organizer/tree/main/skill-organizer-extension",
+  "bugs": {
+    "url": "https://github.com/unthinkmedia/skill_organizer/issues"
+  },
+  "keywords": [
+    "vscode",
+    "extension",
+    "skills",
+    "github",
+    "copilot"
+  ],
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -243,7 +259,10 @@
   },
   "scripts": {
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile",
+    "package": "npx @vscode/vsce package",
+    "publish:patch": "npx @vscode/vsce publish patch"
   },
   "devDependencies": {
     "@types/node": "^20.14.12",
