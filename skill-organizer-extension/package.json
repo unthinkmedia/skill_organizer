@@ -261,7 +261,7 @@
     ]
   },
   "scripts": {
-    "sync:readme": "node -e \"require('fs').copyFileSync('../README.md','./README.md')\"",
+    "sync:readme": "node -e \"const fs=require('fs');let s=fs.readFileSync('../README.md','utf8');s=s.replaceAll('./skill-organizer-extension/media/','./media/');fs.writeFileSync('./README.md',s);\"",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run sync:readme && npm run compile",
