@@ -34,12 +34,8 @@
       {
         "command": "skillOrganizer.addSource",
         "title": "Add Source",
-        "category": "Skill Organizer"
-      },
-      {
-        "command": "skillOrganizer.openActionMenu",
-        "title": "Actions",
-        "category": "Skill Organizer"
+        "category": "Skill Organizer",
+        "icon": "$(add)"
       },
       {
         "command": "skillOrganizer.addGitHubSource",
@@ -151,14 +147,34 @@
           "group": "navigation"
         },
         {
-          "command": "skillOrganizer.extendAgents",
+          "command": "skillOrganizer.chooseGitHubAccount",
           "when": "view == skillOrganizer.skills",
-          "group": "navigation"
+          "group": "2_actions@1"
         },
         {
-          "command": "skillOrganizer.openActionMenu",
+          "command": "skillOrganizer.removeSource",
           "when": "view == skillOrganizer.skills",
-          "group": "navigation"
+          "group": "2_actions@2"
+        },
+        {
+          "command": "skillOrganizer.refresh",
+          "when": "view == skillOrganizer.skills",
+          "group": "2_actions@3"
+        },
+        {
+          "command": "skillOrganizer.extendAgents",
+          "when": "view == skillOrganizer.skills",
+          "group": "2_actions@4"
+        },
+        {
+          "command": "skillOrganizer.applyGlobalProfile",
+          "when": "view == skillOrganizer.skills",
+          "group": "2_actions@5"
+        },
+        {
+          "command": "skillOrganizer.syncWorkspaceSkills",
+          "when": "view == skillOrganizer.skills",
+          "group": "2_actions@6"
         }
       ],
       "view/item/context": [
@@ -221,7 +237,7 @@
       },
       {
         "view": "skillOrganizer.skills",
-        "contents": "Use [Actions](command:skillOrganizer.openActionMenu) for refresh, profile apply, and workspace sync."
+        "contents": "Use the ... actions menu for refresh, profile apply, and workspace sync."
       }
     ]
   },

@@ -87,7 +87,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const treeView = vscode.window.createTreeView("skillOrganizer.skills", {
     treeDataProvider: treeProvider,
-    showCollapseAll: true
+    showCollapseAll: false
   });
 
   const addSource = vscode.commands.registerCommand("skillOrganizer.addSource", async () => {
@@ -154,8 +154,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const skill = allSkills.find((s) => s.sourceId === resolved.source.id && s.slug === resolved.skillSlug);
 
       if (skill) {
-        await enableSkillInWorkspace(skill.id, stateStore);
-        await syncMaterializedEnabledSkills(sourceManager, stateStore);
+        await enableSkillInWorkspace(skill.id, stateStore, sourceManager);
         vscode.window.showInformationMessage(`Imported ${skill.slug} from ${resolved.source.uri} and enabled it in this workspace.`);
       } else {
         vscode.window.showWarningMessage(
@@ -184,27 +183,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
       treeProvider.refresh();
     });
-  });
-
-  const openActionMenu = vscode.commands.registerCommand("skillOrganizer.openActionMenu", async () => {
-    const picked = await vscode.window.showQuickPick(
-      [
-        { label: "$(repo-create) Add Source", description: "GitHub repo or skills.sh URL", command: "skillOrganizer.addSource" },
-        { label: "$(account) Choose GitHub Account", description: "Set preferred auth account for private repos", command: "skillOrganizer.chooseGitHubAccount" },
-        { label: "$(trash) Remove Source", description: "Delete a configured source", command: "skillOrganizer.removeSource" },
-        { label: "$(refresh) Refresh Sources", description: "Pull latest source changes", command: "skillOrganizer.refresh" },
-        { label: "$(comment-discussion) Extend AGENTS.md", description: "Open Copilot Chat with AGENTS governance prompt", command: "skillOrganizer.extendAgents" },
-        { label: "$(star-full) Apply Global Profile", description: "Enable global defaults in this workspace", command: "skillOrganizer.applyGlobalProfile" },
-        { label: "$(files) Sync Workspace Skills", description: "Make .github/skills match current selections", command: "skillOrganizer.syncWorkspaceSkills" }
-      ],
-      { title: "Skill Organizer Actions" }
-    );
-
-    if (!picked) {
-      return;
-    }
-
-    await vscode.commands.executeCommand(picked.command);
   });
 
   const removeSource = vscode.commands.registerCommand("skillOrganizer.removeSource", async (node?: SourceTreeNode) => {
@@ -254,12 +232,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       if (isEnabled) {
         current.delete(resolvedSkillId);
+        await stateStore.saveWorkspaceEnabled([...current]);
+        await syncMaterializedEnabledSkills(sourceManager, stateStore);
       } else {
+        const previous = new Set(current);
         current.add(resolvedSkillId);
+        await stateStore.saveWorkspaceEnabled([...current]);
+
+        try {
+          await syncMaterializedEnabledSkills(sourceManager, stateStore);
+        } catch (error) {
+          await stateStore.saveWorkspaceEnabled([...previous]);
+          throw error;
+        }
       }
 
-      await stateStore.saveWorkspaceEnabled([...current]);
-      await syncMaterializedEnabledSkills(sourceManager, stateStore);
       treeProvider.refresh();
     });
   });
@@ -437,7 +424,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     treeView,
     addSource,
-    openActionMenu,
     addGitHubSource,
     addFromSkillsSh,
     chooseGitHubAccount,
@@ -530,10 +516,18 @@ async function resolveSourceId(
   return selected?.value;
 }
 
-async function enableSkillInWorkspace(skillId: string, stateStore: StateStore): Promise<void> {
+async function enableSkillInWorkspace(skillId: string, stateStore: StateStore, sourceManager: SourceManager): Promise<void> {
   const enabled = new Set(stateStore.getWorkspaceEnabled());
+  const previous = new Set(enabled);
   enabled.add(skillId);
   await stateStore.saveWorkspaceEnabled([...enabled]);
+
+  try {
+    await syncMaterializedEnabledSkills(sourceManager, stateStore);
+  } catch (error) {
+    await stateStore.saveWorkspaceEnabled([...previous]);
+    throw error;
+  }
 }
 
 async function syncMaterializedEnabledSkills(sourceManager: SourceManager, stateStore: StateStore): Promise<void> {

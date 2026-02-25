@@ -19,13 +19,14 @@ This extension bootstraps skill imports from external repositories into your wor
 ## Commands
 
 - `Skill Organizer: Add Source`
-- `Skill Organizer: Actions`
 - `Skill Organizer: Refresh Skills`
 - `Skill Organizer: Extend AGENTS.md`
 - `Skill Organizer: Enable or Disable Skill`
 - `Skill Organizer: Toggle Global Default`
 - `Skill Organizer: Apply Global Profile to Workspace`
 - `Skill Organizer: Sync Workspace Skills`
+
+Most management actions are also available from the `...` title menu in the Skills view.
 
 ## Configuration
 

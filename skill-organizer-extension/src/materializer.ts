@@ -1,6 +1,5 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import * as crypto from "crypto";
 import * as vscode from "vscode";
 import { SkillItem } from "./types";
 
@@ -16,8 +15,11 @@ export async function materializeSkillsToWorkspace(skills: SkillItem[]): Promise
 
   const materializationPlan = skills.map((skill) => ({
     skill,
-    folderName: createStableTargetFolderName(skill)
+    folderName: createTargetFolderName(skill)
   }));
+
+  assertNoFolderNameConflicts(materializationPlan);
+
   const expectedFolders = new Set(materializationPlan.map((entry) => entry.folderName));
 
   const previouslyManaged = await readManagedFolders(outputPath);
@@ -49,15 +51,39 @@ function getPrimaryWorkspaceFolder(): vscode.WorkspaceFolder {
   return folders[0];
 }
 
-function createStableTargetFolderName(skill: SkillItem): string {
-  const base = sanitizeFolderName(skill.slug);
-  const suffix = crypto.createHash("sha1").update(skill.id).digest("hex").slice(0, 8);
-  return `${base}-${suffix}`;
+function createTargetFolderName(skill: SkillItem): string {
+  return sanitizeFolderName(skill.slug);
 }
 
 function sanitizeFolderName(input: string): string {
   const normalized = input.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/-+/g, "-");
   return normalized || "skill";
+}
+
+function assertNoFolderNameConflicts(plan: Array<{ skill: SkillItem; folderName: string }>): void {
+  const folderToSkills = new Map<string, SkillItem[]>();
+
+  for (const entry of plan) {
+    const existing = folderToSkills.get(entry.folderName) ?? [];
+    existing.push(entry.skill);
+    folderToSkills.set(entry.folderName, existing);
+  }
+
+  const conflicts = [...folderToSkills.entries()].filter(([, items]) => items.length > 1);
+  if (conflicts.length === 0) {
+    return;
+  }
+
+  const conflictSummary = conflicts
+    .map(([folderName, items]) => {
+      const sources = items.map((item) => `${item.slug} (${item.relativePath})`).join(", ");
+      return `'${folderName}' from ${sources}`;
+    })
+    .join("; ");
+
+  throw new Error(
+    `Cannot import or sync skills because name conflicts were found. Each skill folder name must be unique and match SKILL.md name. Conflicts: ${conflictSummary}`
+  );
 }
 
 async function readManagedFolders(outputPath: string): Promise<Set<string>> {
