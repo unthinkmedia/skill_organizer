@@ -6,12 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 - Added manual vs managed manifest schema support with automatic legacy migration (`manualFolders` added when missing).
-- Added Materialized section in the Skills tree with visual manual (`✋`) and managed (`📦`) indicators.
-- Added commands: `Mark as Manual`, `Mark as Managed`, `Update Managed Skill`, and `Uninstall Materialized Skill`.
+- Added Materialized section in the Skills tree with visual manual (`manual`) and managed (`package`) indicators.
+- Added commands: `Detach from Source`, `Reconnect to Source`, `Update Managed Skill`, and `Uninstall Materialized Skill`.
 
 ### Changed
 - Sync now skips manual protected skills instead of overwriting them.
-- skills.sh import flow now supports installing directly as manual (protected).
+- skills.sh import flow now supports installing directly as detached from source (protected).
 
 ## [0.0.1] - 2026-02-25
 

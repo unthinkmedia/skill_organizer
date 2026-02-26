@@ -35,6 +35,7 @@ export class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNod
       const allSkills = await this.sourceManager.getSkills();
       const workspaceEnabled = new Set(this.stateStore.getWorkspaceEnabled());
       const globalDefaults = new Set(this.stateStore.getGlobalDefaults());
+      const frozenSkills = new Set(this.stateStore.getFrozenSkills());
 
       if (element.sectionType === "sources") {
         const sources = this.sourceManager.getSources();
@@ -94,10 +95,11 @@ export class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNod
       const allSkills = await this.sourceManager.getSkills();
       const workspaceEnabled = new Set(this.stateStore.getWorkspaceEnabled());
       const globalDefaults = new Set(this.stateStore.getGlobalDefaults());
+      const frozenSkills = new Set(this.stateStore.getFrozenSkills());
 
       return allSkills
         .filter((skill) => skill.sourceId === element.sourceId)
-        .map((skill) => toSkillNode(skill, workspaceEnabled, globalDefaults));
+        .map((skill) => toSkillNode(skill, workspaceEnabled, globalDefaults, frozenSkills));
     }
 
     return [];
@@ -191,29 +193,36 @@ export class MessageTreeNode extends SkillsTreeNode {
 function toSkillNode(
   skill: SkillItem,
   workspaceEnabled: Set<string>,
-  globalDefaults: Set<string>
+  globalDefaults: Set<string>,
+  frozenSkills: Set<string>
 ): SkillTreeNode {
   const enabled = workspaceEnabled.has(skill.id);
   const globalDefault = globalDefaults.has(skill.id);
+  const frozen = frozenSkills.has(skill.id);
 
   const item = new vscode.TreeItem(skill.slug, vscode.TreeItemCollapsibleState.None);
   item.id = createTreeItemId(skill.id, "sources");
-  item.contextValue = "sourceSkillItem";
-  item.tooltip = `${skill.relativePath}\n${enabled ? "Enabled in workspace" : "Disabled in workspace"}`;
+  item.contextValue = frozen ? "sourceSkillItemFrozen" : "sourceSkillItem";
+  item.tooltip = `${skill.relativePath}\n${enabled ? "Enabled in workspace" : "Disabled in workspace"}${frozen ? "\nVersion locked (unlock to enable)" : ""}`;
 
   const descriptionParts: string[] = [];
   descriptionParts.push(enabled ? "enabled" : "disabled");
+  if (frozen) {
+    descriptionParts.push("version locked");
+  }
   if (globalDefault) {
     descriptionParts.push("global");
   }
   item.description = descriptionParts.join(" | ");
 
-  item.iconPath = new vscode.ThemeIcon(enabled ? "check" : "circle-large-outline");
-  item.command = {
-    command: "skillOrganizer.toggleSkill",
-    title: "Toggle Skill",
-    arguments: [skill.id]
-  };
+  item.iconPath = new vscode.ThemeIcon(frozen ? "lock" : enabled ? "check" : "circle-large-outline");
+  if (!frozen) {
+    item.command = {
+      command: "skillOrganizer.toggleSkill",
+      title: "Toggle Skill",
+      arguments: [skill.id]
+    };
+  }
 
   return new SkillTreeNode(item, skill, enabled, globalDefault);
 }
@@ -284,7 +293,7 @@ function toMissingSkillNode(
 function toMaterializedSkillNode(entry: MaterializedSkillEntry): MaterializedSkillTreeNode {
   const isManual = entry.type === "manual";
   const item = new vscode.TreeItem(
-    `${isManual ? "✋" : "📦"} ${entry.folderName}`,
+    `${isManual ? "[manual]" : "[managed]"} ${entry.folderName}`,
     vscode.TreeItemCollapsibleState.None
   );
 

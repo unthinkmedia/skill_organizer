@@ -157,8 +157,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await runCommand(async () => {
       const installMode = await vscode.window.showQuickPick(
         [
-          { label: "$(package) Install as managed", value: "managed" },
-          { label: "$(lock) Install as manual (protected)", value: "manual" }
+          { label: "$(package) Reconnect to Source (managed)", value: "managed" },
+          { label: "$(lock) Detach from Source (local protected copy)", value: "manual" }
         ],
         {
           title: "Install Mode",
@@ -185,8 +185,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await markSkillAsManual(skill.slug);
         }
 
+        const installedAs = installMode.value === "manual" ? "detached from source" : "source-managed";
+
         vscode.window.showInformationMessage(
-          `Imported ${skill.slug} from ${resolved.source.uri} and enabled it in this workspace as ${installMode.value}.`
+          `Imported ${skill.slug} from ${resolved.source.uri} and enabled it in this workspace as ${installedAs}.`
         );
       } else {
         vscode.window.showWarningMessage(
@@ -328,6 +330,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await runCommand(async () => {
       const current = new Set(stateStore.getWorkspaceEnabled());
       const isEnabled = current.has(resolvedSkillId);
+      const frozenSkills = new Set(stateStore.getFrozenSkills());
+
+      if (!isEnabled && frozenSkills.has(resolvedSkillId)) {
+        const skill = await sourceManager.getSkillById(resolvedSkillId);
+        const label = skill?.slug ?? resolvedSkillId;
+        vscode.window.showWarningMessage(`'${label}' is frozen. Unlock it to enable.`);
+        return;
+      }
 
       if (isEnabled) {
         current.delete(resolvedSkillId);
@@ -349,6 +359,77 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       treeProvider.refresh();
     });
   });
+
+  const freezeSkill = vscode.commands.registerCommand(
+    "skillOrganizer.freezeSkill",
+    async (skillArg?: string | SkillTreeNode) => {
+      const resolvedSkillId = await resolveSkillIdFromTreeArgument(skillArg, sourceManager);
+      if (!resolvedSkillId) {
+        return;
+      }
+
+      await runCommand(async () => {
+        const skill = await sourceManager.getSkillById(resolvedSkillId);
+        const label = skill?.slug ?? resolvedSkillId;
+        const frozenSkills = new Set(stateStore.getFrozenSkills());
+        if (frozenSkills.has(resolvedSkillId)) {
+          vscode.window.showInformationMessage(`'${label}' is already frozen.`);
+          return;
+        }
+
+        const enabledBefore = new Set(stateStore.getWorkspaceEnabled());
+        const wasEnabled = enabledBefore.delete(resolvedSkillId);
+        if (wasEnabled) {
+          await stateStore.saveWorkspaceEnabled([...enabledBefore]);
+        }
+
+        frozenSkills.add(resolvedSkillId);
+        await stateStore.saveFrozenSkills([...frozenSkills]);
+
+        try {
+          if (wasEnabled) {
+            await syncMaterializedEnabledSkills(sourceManager, stateStore);
+          }
+        } catch (error) {
+          frozenSkills.delete(resolvedSkillId);
+          await stateStore.saveFrozenSkills([...frozenSkills]);
+          if (wasEnabled) {
+            enabledBefore.add(resolvedSkillId);
+            await stateStore.saveWorkspaceEnabled([...enabledBefore]);
+          }
+          throw error;
+        }
+
+        treeProvider.refresh();
+        vscode.window.showInformationMessage(`Froze '${label}'. It cannot be enabled until unlocked.`);
+      });
+    }
+  );
+
+  const unfreezeSkill = vscode.commands.registerCommand(
+    "skillOrganizer.unfreezeSkill",
+    async (skillArg?: string | SkillTreeNode) => {
+      const resolvedSkillId = await resolveSkillIdFromTreeArgument(skillArg, sourceManager);
+      if (!resolvedSkillId) {
+        return;
+      }
+
+      await runCommand(async () => {
+        const skill = await sourceManager.getSkillById(resolvedSkillId);
+        const label = skill?.slug ?? resolvedSkillId;
+        const frozenSkills = new Set(stateStore.getFrozenSkills());
+        if (!frozenSkills.has(resolvedSkillId)) {
+          vscode.window.showInformationMessage(`'${label}' is not frozen.`);
+          return;
+        }
+
+        frozenSkills.delete(resolvedSkillId);
+        await stateStore.saveFrozenSkills([...frozenSkills]);
+        treeProvider.refresh();
+        vscode.window.showInformationMessage(`Unlocked '${label}'. You can enable it again.`);
+      });
+    }
+  );
 
   const setGlobalDefault = vscode.commands.registerCommand(
     "skillOrganizer.setGlobalDefault",
@@ -453,15 +534,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
+      const frozenSkills = new Set(stateStore.getFrozenSkills());
+      const eligibleGlobalDefaults = globalDefaults.filter((skillId) => !frozenSkills.has(skillId));
+      const skippedFrozen = globalDefaults.length - eligibleGlobalDefaults.length;
+
       const workspaceEnabled = new Set(stateStore.getWorkspaceEnabled());
-      for (const skillId of globalDefaults) {
+      for (const skillId of eligibleGlobalDefaults) {
         workspaceEnabled.add(skillId);
       }
 
       await stateStore.saveWorkspaceEnabled([...workspaceEnabled]);
       await syncMaterializedEnabledSkills(sourceManager, stateStore);
       treeProvider.refresh();
-      vscode.window.showInformationMessage(`Applied ${globalDefaults.length} global default skill(s) to this workspace.`);
+      const skippedMessage = skippedFrozen > 0 ? ` Skipped ${skippedFrozen} frozen skill(s).` : "";
+      vscode.window.showInformationMessage(
+        `Applied ${eligibleGlobalDefaults.length} global default skill(s) to this workspace.${skippedMessage}`
+      );
     });
   });
 
@@ -511,7 +599,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       await markSkillAsManual(skillName);
       treeProvider.refresh();
-      vscode.window.showInformationMessage(`Marked '${skillName}' as manual (protected from updates).`);
+      vscode.window.showInformationMessage(`Detached '${skillName}' from source (protected from updates).`);
     });
   });
 
@@ -524,7 +612,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       await markSkillAsManaged(skillName);
       treeProvider.refresh();
-      vscode.window.showInformationMessage(`Marked '${skillName}' as managed.`);
+      vscode.window.showInformationMessage(`Reconnected '${skillName}' to source updates.`);
     });
   });
 
@@ -540,7 +628,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const isManual = node?.entry.type === "manual";
         if (isManual) {
           const forceConfirm = await vscode.window.showWarningMessage(
-            `'${skillName}' is manual and protected. Remove anyway?`,
+            `'${skillName}' is detached from source and protected. Remove anyway?`,
             { modal: true },
             "Force Remove"
           );
@@ -658,6 +746,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     removeFromGlobalDefaults,
     applyGlobalProfile,
     syncWorkspaceSkills,
+    freezeSkill,
+    unfreezeSkill,
     extendAgents,
     markManual,
     markManaged,
@@ -789,6 +879,13 @@ async function resolveSourceId(
 }
 
 async function enableSkillInWorkspace(skillId: string, stateStore: StateStore, sourceManager: SourceManager): Promise<void> {
+  const frozenSkills = new Set(stateStore.getFrozenSkills());
+  if (frozenSkills.has(skillId)) {
+    const skill = await sourceManager.getSkillById(skillId);
+    const label = skill?.slug ?? skillId;
+    throw new Error(`'${label}' is frozen. Unlock it before enabling.`);
+  }
+
   const enabled = new Set(stateStore.getWorkspaceEnabled());
   const previous = new Set(enabled);
   enabled.add(skillId);
@@ -803,13 +900,20 @@ async function enableSkillInWorkspace(skillId: string, stateStore: StateStore, s
 }
 
 async function syncMaterializedEnabledSkills(sourceManager: SourceManager, stateStore: StateStore): Promise<void> {
+  const frozenSkills = new Set(stateStore.getFrozenSkills());
   const enabledIds = stateStore.getWorkspaceEnabled();
-  if (enabledIds.length === 0) {
+  const filteredEnabledIds = enabledIds.filter((id) => !frozenSkills.has(id));
+
+  if (filteredEnabledIds.length !== enabledIds.length) {
+    await stateStore.saveWorkspaceEnabled(filteredEnabledIds);
+  }
+
+  if (filteredEnabledIds.length === 0) {
     await materializeSkillsToWorkspace([]);
     return;
   }
 
-  const resolvedSkills = await Promise.all(enabledIds.map((id) => sourceManager.getSkillById(id)));
+  const resolvedSkills = await Promise.all(filteredEnabledIds.map((id) => sourceManager.getSkillById(id)));
   const skills = resolvedSkills.filter((skill): skill is NonNullable<typeof skill> => Boolean(skill));
 
   if (skills.length === 0) {
@@ -922,6 +1026,12 @@ async function pruneSkillSelectionsForSource(sourceId: string, stateStore: State
   const filteredGlobalDefaults = globalDefaults.filter((skillId) => !skillId.startsWith(sourceSkillPrefix));
   if (filteredGlobalDefaults.length !== globalDefaults.length) {
     await stateStore.saveGlobalDefaults(filteredGlobalDefaults);
+  }
+
+  const frozenSkills = stateStore.getFrozenSkills();
+  const filteredFrozenSkills = frozenSkills.filter((skillId) => !skillId.startsWith(sourceSkillPrefix));
+  if (filteredFrozenSkills.length !== frozenSkills.length) {
+    await stateStore.saveFrozenSkills(filteredFrozenSkills);
   }
 }
 

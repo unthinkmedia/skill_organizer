@@ -39,7 +39,7 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 3. Choose GitHub or `skills.sh`, then provide the source URL.
 4. Enable the skills you want.
 5. Run `Skill Organizer: Apply Sync (Overwrite Managed Skills)` to materialize into `.github/skills`.
-6. Optional: Use `Mark as Manual` in the Materialized section to protect a copied skill from updates.
+6. Optional: Use `Detach from Source` in the Materialized section to protect a copied skill from updates.
 
 ## Commands
 
@@ -50,8 +50,8 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 - `Skill Organizer: Toggle Global Default`
 - `Skill Organizer: Apply Global Profile to Workspace`
 - `Skill Organizer: Apply Sync (Overwrite Managed Skills)`
-- `Skill Organizer: Mark as Manual`
-- `Skill Organizer: Mark as Managed`
+- `Skill Organizer: Detach from Source`
+- `Skill Organizer: Reconnect to Source`
 - `Skill Organizer: Update Managed Skill`
 - `Skill Organizer: Uninstall Materialized Skill`
 
@@ -66,8 +66,8 @@ Skill Organizer tracks materialized folders in `.skill-organizer.manifest.json`:
 }
 ```
 
-- Managed (`📦`) skills are updated/replaced by sync.
-- Manual (`✋`) skills are protected from sync updates and removals.
+- Managed (`package`) skills are updated/replaced by sync.
+- Manual (`manual`) skills are protected from sync updates and removals.
 - Existing manifests migrate automatically by adding `manualFolders: []` when missing.
 
 ### Protection Rules
@@ -75,7 +75,7 @@ Skill Organizer tracks materialized folders in `.skill-organizer.manifest.json`:
 - Sync skips manual folders (they remain untouched).
 - `Update Managed Skill` is only available for managed entries.
 - `Uninstall Materialized Skill` requires force confirmation for manual entries.
-- `Mark as Manual` and `Mark as Managed` move skills between manifest arrays.
+- `Detach from Source` and `Reconnect to Source` move skills between manifest arrays.
 
 Most management actions are also available from the `...` title menu in the Skills view.
 

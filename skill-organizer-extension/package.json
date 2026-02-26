@@ -2,7 +2,7 @@
   "name": "skill-organizer-extension",
   "displayName": "Skill Organizer",
   "description": "Import and manage reusable AI skills from GitHub repos, skills.sh URLs, and local folders.",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "publisher": "unthinkmedia",
   "license": "UNLICENSED",
   "repository": {
@@ -89,6 +89,18 @@
         "category": "Skill Organizer"
       },
       {
+        "command": "skillOrganizer.freezeSkill",
+        "title": "Freeze Skill",
+        "category": "Skill Organizer",
+        "icon": "$(lock)"
+      },
+      {
+        "command": "skillOrganizer.unfreezeSkill",
+        "title": "Unlock Skill",
+        "category": "Skill Organizer",
+        "icon": "$(unlock)"
+      },
+      {
         "command": "skillOrganizer.removeFromWorkspace",
         "title": "Remove from Workspace Enabled",
         "category": "Skill Organizer",
@@ -136,12 +148,12 @@
       },
       {
         "command": "skillOrganizer.markManual",
-        "title": "Mark as Manual",
+        "title": "Detach from Source",
         "category": "Skill Organizer"
       },
       {
         "command": "skillOrganizer.markManaged",
-        "title": "Mark as Managed",
+        "title": "Reconnect to Source",
         "category": "Skill Organizer"
       },
       {
@@ -239,6 +251,16 @@
         {
           "command": "skillOrganizer.toggleSkill",
           "when": "view == skillOrganizer.skills && viewItem == sourceSkillItem",
+          "group": "inline"
+        },
+        {
+          "command": "skillOrganizer.freezeSkill",
+          "when": "view == skillOrganizer.skills && viewItem == sourceSkillItem",
+          "group": "navigation"
+        },
+        {
+          "command": "skillOrganizer.unfreezeSkill",
+          "when": "view == skillOrganizer.skills && viewItem == sourceSkillItemFrozen",
           "group": "inline"
         },
         {

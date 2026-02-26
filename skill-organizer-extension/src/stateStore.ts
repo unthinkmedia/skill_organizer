@@ -4,6 +4,7 @@ import { SkillSource } from "./types";
 const SOURCES_KEY = "skillOrganizer.sources";
 const GLOBAL_DEFAULTS_KEY = "skillOrganizer.globalDefaults";
 const WORKSPACE_ENABLED_KEY = "skillOrganizer.workspaceEnabled";
+const FROZEN_SKILLS_KEY = "skillOrganizer.frozenSkills";
 
 export class StateStore {
   constructor(private readonly context: vscode.ExtensionContext) {}
@@ -30,6 +31,14 @@ export class StateStore {
 
   async saveWorkspaceEnabled(skillIds: string[]): Promise<void> {
     await this.context.workspaceState.update(WORKSPACE_ENABLED_KEY, skillIds);
+  }
+
+  getFrozenSkills(): string[] {
+    return sanitizeSkillIds(this.context.workspaceState.get<unknown>(FROZEN_SKILLS_KEY, []));
+  }
+
+  async saveFrozenSkills(skillIds: string[]): Promise<void> {
+    await this.context.workspaceState.update(FROZEN_SKILLS_KEY, skillIds);
   }
 }
 
