@@ -184,6 +184,11 @@
         "command": "skillOrganizer.extendAgents",
         "title": "Extend AGENTS.md",
         "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.explainConflict",
+        "title": "Explain Conflict",
+        "category": "Skill Organizer"
       }
     ],
     "configuration": {

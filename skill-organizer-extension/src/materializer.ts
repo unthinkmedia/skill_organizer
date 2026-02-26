@@ -206,8 +206,64 @@ function getOutputPath(workspaceFolder: vscode.WorkspaceFolder): string {
   return path.join(workspaceFolder.uri.fsPath, destinationPath);
 }
 
+export function getSkillTargetFolderName(slug: string): string {
+  return sanitizeFolderName(slug);
+}
+
 function createTargetFolderName(skill: SkillItem): string {
   return sanitizeFolderName(skill.slug);
+}
+
+export async function getLocalConflictFolderNames(): Promise<Set<string>> {
+  let workspaceFolder: vscode.WorkspaceFolder;
+  try {
+    workspaceFolder = getPrimaryWorkspaceFolder();
+  } catch {
+    return new Set();
+  }
+
+  const outputPath = getOutputPath(workspaceFolder);
+
+  try {
+    await fs.access(outputPath);
+  } catch {
+    return new Set();
+  }
+
+  const manifest = await loadManifest(outputPath);
+  const conflicts = new Set<string>();
+
+  for (const folder of manifest.manualFolders) {
+    conflicts.add(folder);
+  }
+
+  let dirEntries: string[];
+  try {
+    dirEntries = await fs.readdir(outputPath);
+  } catch {
+    return conflicts;
+  }
+
+  const managedSet = new Set(manifest.managedFolders);
+  const manualSet = new Set(manifest.manualFolders);
+
+  for (const name of dirEntries) {
+    const fullPath = path.join(outputPath, name);
+    try {
+      const stat = await fs.stat(fullPath);
+      if (!stat.isDirectory()) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+
+    if (!managedSet.has(name) && !manualSet.has(name)) {
+      conflicts.add(name);
+    }
+  }
+
+  return conflicts;
 }
 
 function sanitizeFolderName(input: string): string {

@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import {
   assertCanInstallMaterializedSkill,
+  getLocalConflictFolderNames,
+  getSkillTargetFolderName,
   listMaterializedSkills,
   markSkillAsManaged,
   markSkillAsManual,
@@ -97,6 +99,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const treeView = vscode.window.createTreeView("skillOrganizer.skills", {
     treeDataProvider: treeProvider,
     showCollapseAll: false
+  });
+
+  treeView.onDidChangeCheckboxState(async (e) => {
+    for (const [item] of e.items) {
+      if (item instanceof SkillTreeNode) {
+        await vscode.commands.executeCommand("skillOrganizer.toggleSkill", item.skill.id);
+      }
+    }
+  });
+
+  const conflictDecorationProvider = vscode.window.registerFileDecorationProvider({
+    provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+      if (uri.scheme === "skill-organizer-disabled") {
+        return {
+          color: new vscode.ThemeColor("disabledForeground"),
+          tooltip: "Local conflict — cannot enable"
+        };
+      }
+      return undefined;
+    }
   });
 
   const addSource = vscode.commands.registerCommand("skillOrganizer.addSource", async () => {
@@ -337,6 +359,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const label = skill?.slug ?? resolvedSkillId;
         vscode.window.showWarningMessage(`'${label}' is frozen. Unlock it to enable.`);
         return;
+      }
+
+      if (!isEnabled) {
+        const skill = await sourceManager.getSkillById(resolvedSkillId);
+        if (skill) {
+          const conflicts = await getLocalConflictFolderNames();
+          const targetFolder = getSkillTargetFolderName(skill.slug);
+          if (conflicts.has(targetFolder)) {
+            vscode.window.showWarningMessage(
+              `'${skill.slug}' conflicts with an existing local folder '${targetFolder}'. Remove or rename the local folder first.`
+            );
+            return;
+          }
+        }
       }
 
       if (isEnabled) {
@@ -703,6 +739,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   );
 
+  const explainConflict = vscode.commands.registerCommand(
+    "skillOrganizer.explainConflict",
+    async (skillSlug?: string, targetFolder?: string) => {
+      const label = skillSlug ?? "This skill";
+      const folder = targetFolder ?? "unknown";
+      vscode.window.showWarningMessage(
+        `'${label}' cannot be enabled because a local folder '${folder}' already exists in the destination path. Remove or rename the local folder, then refresh.`
+      );
+    }
+  );
+
   const extendAgents = vscode.commands.registerCommand("skillOrganizer.extendAgents", async () => {
     await runCommand(async () => {
       const locationStatus = await normalizeAgentsFileLocation();
@@ -732,6 +779,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     treeView,
+    conflictDecorationProvider,
     addSource,
     addGitHubSource,
     addFromSkillsSh,
@@ -749,6 +797,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     freezeSkill,
     unfreezeSkill,
     extendAgents,
+    explainConflict,
     markManual,
     markManaged,
     uninstallSkill,
@@ -884,6 +933,17 @@ async function enableSkillInWorkspace(skillId: string, stateStore: StateStore, s
     const skill = await sourceManager.getSkillById(skillId);
     const label = skill?.slug ?? skillId;
     throw new Error(`'${label}' is frozen. Unlock it before enabling.`);
+  }
+
+  const skill = await sourceManager.getSkillById(skillId);
+  if (skill) {
+    const conflicts = await getLocalConflictFolderNames();
+    const targetFolder = getSkillTargetFolderName(skill.slug);
+    if (conflicts.has(targetFolder)) {
+      throw new Error(
+        `'${skill.slug}' conflicts with an existing local folder '${targetFolder}'. Remove or rename the local folder first.`
+      );
+    }
   }
 
   const enabled = new Set(stateStore.getWorkspaceEnabled());

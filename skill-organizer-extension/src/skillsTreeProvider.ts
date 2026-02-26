@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { listMaterializedSkills, MaterializedSkillEntry } from "./materializer";
+import { listMaterializedSkills, MaterializedSkillEntry, getLocalConflictFolderNames, getSkillTargetFolderName } from "./materializer";
 import { SourceManager } from "./sourceManager";
 import { StateStore } from "./stateStore";
 import { SkillItem } from "./types";
@@ -96,10 +96,11 @@ export class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNod
       const workspaceEnabled = new Set(this.stateStore.getWorkspaceEnabled());
       const globalDefaults = new Set(this.stateStore.getGlobalDefaults());
       const frozenSkills = new Set(this.stateStore.getFrozenSkills());
+      const conflictFolders = await getLocalConflictFolderNames();
 
       return allSkills
         .filter((skill) => skill.sourceId === element.sourceId)
-        .map((skill) => toSkillNode(skill, workspaceEnabled, globalDefaults, frozenSkills));
+        .map((skill) => toSkillNode(skill, workspaceEnabled, globalDefaults, frozenSkills, conflictFolders));
     }
 
     return [];
@@ -162,6 +163,7 @@ export class SkillTreeNode extends SkillsTreeNode {
     this.tooltip = item.tooltip;
     this.command = item.command;
     this.iconPath = item.iconPath;
+    this.checkboxState = item.checkboxState;
   }
 }
 
@@ -194,14 +196,32 @@ function toSkillNode(
   skill: SkillItem,
   workspaceEnabled: Set<string>,
   globalDefaults: Set<string>,
-  frozenSkills: Set<string>
+  frozenSkills: Set<string>,
+  conflictFolders: Set<string>
 ): SkillTreeNode {
   const enabled = workspaceEnabled.has(skill.id);
   const globalDefault = globalDefaults.has(skill.id);
   const frozen = frozenSkills.has(skill.id);
+  const targetFolder = getSkillTargetFolderName(skill.slug);
+  const hasConflict = conflictFolders.has(targetFolder);
 
   const item = new vscode.TreeItem(skill.slug, vscode.TreeItemCollapsibleState.None);
   item.id = createTreeItemId(skill.id, "sources");
+
+  if (hasConflict) {
+    item.contextValue = "sourceSkillItemConflict";
+    item.tooltip = `${skill.relativePath}\nLocal conflict: a folder named '${targetFolder}' already exists in destination.\nRemove or rename the local folder to enable this skill.`;
+    item.description = "local conflict";
+    item.iconPath = new vscode.ThemeIcon("circle-slash", new vscode.ThemeColor("disabledForeground"));
+    item.resourceUri = vscode.Uri.parse(`skill-organizer-disabled:/${encodeURIComponent(skill.id)}`);
+    item.command = {
+      command: "skillOrganizer.explainConflict",
+      title: "Explain Conflict",
+      arguments: [skill.slug, targetFolder]
+    };
+    return new SkillTreeNode(item, skill, false, globalDefault);
+  }
+
   item.contextValue = frozen ? "sourceSkillItemFrozen" : "sourceSkillItem";
   item.tooltip = `${skill.relativePath}\n${enabled ? "Enabled in workspace" : "Disabled in workspace"}${frozen ? "\nVersion locked (unlock to enable)" : ""}`;
 
@@ -215,13 +235,12 @@ function toSkillNode(
   }
   item.description = descriptionParts.join(" | ");
 
-  item.iconPath = new vscode.ThemeIcon(frozen ? "lock" : enabled ? "check" : "circle-large-outline");
-  if (!frozen) {
-    item.command = {
-      command: "skillOrganizer.toggleSkill",
-      title: "Toggle Skill",
-      arguments: [skill.id]
-    };
+  if (frozen) {
+    item.iconPath = new vscode.ThemeIcon("lock");
+  } else {
+    item.checkboxState = enabled
+      ? vscode.TreeItemCheckboxState.Checked
+      : vscode.TreeItemCheckboxState.Unchecked;
   }
 
   return new SkillTreeNode(item, skill, enabled, globalDefault);
@@ -241,7 +260,7 @@ function toWorkspaceSkillNode(
   item.contextValue = globalDefault ? "workspaceSkillItemGlobal" : "workspaceSkillItem";
   item.description = globalDefault ? `${skill.relativePath} | global` : skill.relativePath;
   item.tooltip = `${skill.relativePath}\nEnabled in workspace${globalDefault ? "\nGlobal default" : ""}`;
-  item.iconPath = new vscode.ThemeIcon("check");
+  item.checkboxState = vscode.TreeItemCheckboxState.Checked;
 
   return new SkillTreeNode(item, skill, true, globalDefault);
 }
