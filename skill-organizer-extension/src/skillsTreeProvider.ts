@@ -25,7 +25,7 @@ export class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNod
     if (!element) {
       return [
         new SectionTreeNode("Sources", "Configured repositories", "repo", "sources"),
-        new SectionTreeNode("Materialized", "Folders in destination path", "folder-library", "materialized"),
+        new SectionTreeNode("Local Skills", "Found in destination path", "folder-library", "materialized"),
         new SectionTreeNode("Workspace Enabled", "Active in this workspace", "checklist", "workspace"),
         new SectionTreeNode("Global Defaults", "Applied by global profile", "star-full", "global")
       ];
@@ -57,20 +57,24 @@ export class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNod
       if (element.sectionType === "workspace") {
         const nodes = [...workspaceEnabled]
           .map((skillId) => ({
+            skillId,
             skill: allSkills.find((candidate) => candidate.id === skillId),
             globalDefault: globalDefaults.has(skillId)
           }))
-          .map(({ skill, globalDefault }) => toWorkspaceSkillNode(skill, globalDefault))
-          .filter((node): node is SkillTreeNode | MessageTreeNode => Boolean(node));
+          .map(({ skillId, skill, globalDefault }) => toWorkspaceSkillNode(skillId, skill, globalDefault))
+          .filter((node): node is SkillTreeNode | MissingSkillTreeNode => Boolean(node));
 
         return nodes.length > 0 ? nodes : [new MessageTreeNode("No skills enabled", "Toggle a skill to enable it", "circle-large-outline")];
       }
 
       if (element.sectionType === "global") {
         const nodes = [...globalDefaults]
-          .map((skillId) => allSkills.find((skill) => skill.id === skillId))
-          .map((skill) => toGlobalSkillNode(skill))
-          .filter((node): node is SkillTreeNode | MessageTreeNode => Boolean(node));
+          .map((skillId) => ({
+            skillId,
+            skill: allSkills.find((skill) => skill.id === skillId)
+          }))
+          .map(({ skillId, skill }) => toGlobalSkillNode(skillId, skill))
+          .filter((node): node is SkillTreeNode | MissingSkillTreeNode => Boolean(node));
 
         return nodes.length > 0 ? nodes : [new MessageTreeNode("No global defaults", "Mark skills as global defaults", "star-empty")];
       }
@@ -80,7 +84,7 @@ export class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNod
         const nodes = materialized.map((entry) => toMaterializedSkillNode(entry));
         return nodes.length > 0
           ? nodes
-          : [new MessageTreeNode("No materialized skills", "Run sync to copy enabled skills", "folder-opened")];
+          : [new MessageTreeNode("No local skills", "Run sync to copy enabled skills", "folder-opened")];
       }
 
       return [];
@@ -159,6 +163,22 @@ export class SkillTreeNode extends SkillsTreeNode {
   }
 }
 
+export class MissingSkillTreeNode extends SkillsTreeNode {
+  constructor(
+    item: vscode.TreeItem,
+    public readonly missingSkillId: string,
+    public readonly section: "workspace" | "global"
+  ) {
+    super(item.label ?? "", item.collapsibleState);
+    this.contextValue = item.contextValue;
+    this.id = item.id;
+    this.description = item.description;
+    this.tooltip = item.tooltip;
+    this.command = item.command;
+    this.iconPath = item.iconPath;
+  }
+}
+
 export class MessageTreeNode extends SkillsTreeNode {
   constructor(label: string, description: string, iconName: string) {
     super(label, vscode.TreeItemCollapsibleState.None);
@@ -199,11 +219,12 @@ function toSkillNode(
 }
 
 function toWorkspaceSkillNode(
+  skillId: string,
   skill: SkillItem | undefined,
   globalDefault: boolean
-): SkillTreeNode | MessageTreeNode | undefined {
+): SkillTreeNode | MissingSkillTreeNode | undefined {
   if (!skill) {
-    return new MessageTreeNode("Missing skill", "Source no longer provides this skill", "warning");
+    return toMissingSkillNode(skillId, "workspace", globalDefault);
   }
 
   const item = new vscode.TreeItem(skill.slug, vscode.TreeItemCollapsibleState.None);
@@ -216,9 +237,9 @@ function toWorkspaceSkillNode(
   return new SkillTreeNode(item, skill, true, globalDefault);
 }
 
-function toGlobalSkillNode(skill: SkillItem | undefined): SkillTreeNode | MessageTreeNode | undefined {
+function toGlobalSkillNode(skillId: string, skill: SkillItem | undefined): SkillTreeNode | MissingSkillTreeNode | undefined {
   if (!skill) {
-    return new MessageTreeNode("Missing skill", "Source no longer provides this global default", "warning");
+    return toMissingSkillNode(skillId, "global", false);
   }
 
   const item = new vscode.TreeItem(skill.slug, vscode.TreeItemCollapsibleState.None);
@@ -229,6 +250,35 @@ function toGlobalSkillNode(skill: SkillItem | undefined): SkillTreeNode | Messag
   item.iconPath = new vscode.ThemeIcon("star-full");
 
   return new SkillTreeNode(item, skill, false, true);
+}
+
+function toMissingSkillNode(
+  skillId: string,
+  section: "workspace" | "global",
+  globalDefault: boolean
+): MissingSkillTreeNode {
+  const item = new vscode.TreeItem("Missing skill", vscode.TreeItemCollapsibleState.None);
+  item.id = createTreeItemId(skillId, section);
+  item.contextValue = section === "workspace" ? "missingWorkspaceSkillItem" : "missingGlobalSkillItem";
+  item.description = "Click for recovery steps";
+
+  const scopeLabel = section === "workspace" ? "workspace enabled" : "global defaults";
+  const globalLine = section === "workspace" && globalDefault ? "\nAlso set as global default" : "";
+  item.tooltip = `Skill id: ${skillId}\nMissing from current sources\nReferenced by ${scopeLabel}${globalLine}`;
+  item.iconPath = new vscode.ThemeIcon("warning");
+  item.command = {
+    command: "skillOrganizer.explainMissingSkill",
+    title: "Explain Missing Skill",
+    arguments: [
+      {
+        skillId,
+        section,
+        globalDefault
+      }
+    ]
+  };
+
+  return new MissingSkillTreeNode(item, skillId, section);
 }
 
 function toMaterializedSkillNode(entry: MaterializedSkillEntry): MaterializedSkillTreeNode {

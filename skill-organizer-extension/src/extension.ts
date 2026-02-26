@@ -8,9 +8,10 @@ import {
   uninstallMaterializedSkill,
   updateManagedMaterializedSkill
 } from "./materializer";
-import { MaterializedSkillTreeNode, SkillTreeNode, SkillsTreeProvider, SourceTreeNode } from "./skillsTreeProvider";
+import { MaterializedSkillTreeNode, MissingSkillTreeNode, SkillTreeNode, SkillsTreeProvider, SourceTreeNode } from "./skillsTreeProvider";
 import { SourceManager } from "./sourceManager";
 import { StateStore } from "./stateStore";
+import { SkillItem, SkillSource } from "./types";
 
 const DEFAULT_SKILLS_SOURCE = "https://github.com/anthropics/skills";
 const DEFAULT_AGENTS_MD = `# AGENTS.md
@@ -216,6 +217,73 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   });
 
+  const explainMissingSkill = vscode.commands.registerCommand(
+    "skillOrganizer.explainMissingSkill",
+    async (node?: MissingSkillTreeNode | MissingSkillCommandPayload) => {
+      const payload = resolveMissingSkillPayload(node);
+      if (!payload) {
+        return;
+      }
+
+      const removeThisSectionLabel = payload.section === "workspace" ? "Remove from Workspace Enabled" : "Remove from Global Defaults";
+      const actions = ["Add Source", "Refresh Sources", removeThisSectionLabel];
+      if (payload.section === "workspace" && payload.globalDefault) {
+        actions.push("Remove from Workspace + Global Defaults");
+      }
+
+      const selected = await vscode.window.showWarningMessage(
+        "This skill is referenced in saved state but cannot be found in current sources.",
+        {
+          modal: true,
+          detail:
+            `Missing skill id: ${payload.skillId}\n\n` +
+            "Common causes:\n" +
+            "• The source was removed\n" +
+            "• The source URL or branch changed\n" +
+            "• The skill was renamed or deleted upstream\n\n" +
+            "Recommended: re-add the source, then refresh."
+        },
+        ...actions
+      );
+
+      if (!selected) {
+        return;
+      }
+
+      if (selected === "Add Source") {
+        await vscode.commands.executeCommand("skillOrganizer.addSource");
+        return;
+      }
+
+      if (selected === "Refresh Sources") {
+        await vscode.commands.executeCommand("skillOrganizer.refresh");
+        return;
+      }
+
+      await runCommand(async () => {
+        if (selected === removeThisSectionLabel || selected === "Remove from Workspace + Global Defaults") {
+          if (payload.section === "workspace") {
+            const updatedWorkspace = stateStore.getWorkspaceEnabled().filter((id) => id !== payload.skillId);
+            await stateStore.saveWorkspaceEnabled(updatedWorkspace);
+
+            if (selected === "Remove from Workspace + Global Defaults") {
+              const updatedGlobal = stateStore.getGlobalDefaults().filter((id) => id !== payload.skillId);
+              await stateStore.saveGlobalDefaults(updatedGlobal);
+            }
+
+            await syncMaterializedEnabledSkills(sourceManager, stateStore);
+          } else {
+            const updatedGlobal = stateStore.getGlobalDefaults().filter((id) => id !== payload.skillId);
+            await stateStore.saveGlobalDefaults(updatedGlobal);
+          }
+
+          treeProvider.refresh();
+          vscode.window.showInformationMessage(`Removed stale missing skill reference '${payload.skillId}'.`);
+        }
+      });
+    }
+  );
+
   const removeSource = vscode.commands.registerCommand("skillOrganizer.removeSource", async (node?: SourceTreeNode) => {
     const sourceId = await resolveSourceId(node?.sourceId, sourceManager);
     if (!sourceId) {
@@ -406,11 +474,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await runCommand(async () => {
       const enabledIds = stateStore.getWorkspaceEnabled();
       if (enabledIds.length === 0) {
-        const result = await runWithProgress("Syncing materialized skills", async () => {
+        const result = await runWithProgress("Syncing local skills", async () => {
           return materializeSkillsToWorkspace([]);
         });
 
-        vscode.window.showInformationMessage(`No skills enabled. Removed ${result.removed} materialized skill folder(s).`);
+        vscode.window.showInformationMessage(`No skills enabled. Removed ${result.removed} local skill folder(s).`);
         return;
       }
 
@@ -422,13 +490,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      const result = await runWithProgress("Materializing enabled skills", async () => {
+      const result = await runWithProgress("Syncing enabled local skills", async () => {
         return materializeSkillsToWorkspace(skills);
       });
 
       const skippedMessage = result.skippedManual > 0 ? ` Skipped ${result.skippedManual} manual protected skill(s).` : "";
       vscode.window.showInformationMessage(
-        `Materialized ${result.copied} skill(s) to ${result.outputPath}. Removed ${result.removed} stale folder(s).${skippedMessage}`
+        `Synced ${result.copied} local skill(s) to ${result.outputPath}. Removed ${result.removed} stale folder(s).${skippedMessage}`
       );
       treeProvider.refresh();
     });
@@ -513,9 +581,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         const enabledIds = stateStore.getWorkspaceEnabled();
         const resolvedSkills = await Promise.all(enabledIds.map((id) => sourceManager.getSkillById(id)));
-        const skills = resolvedSkills.filter((skill): skill is NonNullable<typeof skill> => Boolean(skill));
+        const enabledSkills = resolvedSkills.filter((skill): skill is NonNullable<typeof skill> => Boolean(skill));
 
-        await updateManagedMaterializedSkill(skillName, skills);
+        const normalizedSkillName = normalizeManagedSkillFolderName(skillName);
+        let selectedSkill = enabledSkills.find((skill) => normalizeManagedSkillFolderName(skill.slug) === normalizedSkillName);
+
+        if (!selectedSkill) {
+          const allSkills = await sourceManager.getSkills();
+          const matchingSkills = allSkills.filter((skill) => normalizeManagedSkillFolderName(skill.slug) === normalizedSkillName);
+
+          if (matchingSkills.length === 0) {
+            throw new Error(`No source skill matches managed folder '${skillName}'. Re-enable it or re-install from source.`);
+          }
+
+          if (matchingSkills.length === 1) {
+            selectedSkill = matchingSkills[0];
+          } else {
+            selectedSkill = await pickManagedSkillMatch(skillName, matchingSkills, sourceManager);
+            if (!selectedSkill) {
+              return;
+            }
+          }
+
+          if (!enabledIds.includes(selectedSkill.id)) {
+            await stateStore.saveWorkspaceEnabled([...enabledIds, selectedSkill.id]);
+          }
+        }
+
+        await updateManagedMaterializedSkill(skillName, [selectedSkill]);
         treeProvider.refresh();
         vscode.window.showInformationMessage(`Updated managed skill '${skillName}'.`);
       });
@@ -557,6 +650,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     chooseGitHubAccount,
     removeSource,
     refresh,
+    explainMissingSkill,
     toggleSkill,
     setGlobalDefault,
     unsetGlobalDefault,
@@ -588,6 +682,38 @@ async function confirmSyncWorkspaceSkills(stateStore: StateStore): Promise<boole
 
 export function deactivate(): void {
   // VS Code disposes subscriptions automatically.
+}
+
+type MissingSkillCommandPayload = {
+  skillId: string;
+  section: "workspace" | "global";
+  globalDefault?: boolean;
+};
+
+function resolveMissingSkillPayload(
+  input?: MissingSkillTreeNode | MissingSkillCommandPayload
+): MissingSkillCommandPayload | undefined {
+  if (!input) {
+    return undefined;
+  }
+
+  if (input instanceof MissingSkillTreeNode) {
+    return {
+      skillId: input.missingSkillId,
+      section: input.section,
+      globalDefault: false
+    };
+  }
+
+  if (typeof input.skillId === "string" && (input.section === "workspace" || input.section === "global")) {
+    return {
+      skillId: input.skillId,
+      section: input.section,
+      globalDefault: input.globalDefault === true
+    };
+  }
+
+  return undefined;
 }
 
 async function runWithProgress<T>(title: string, operation: () => Promise<T>): Promise<T> {
@@ -710,7 +836,7 @@ async function resolveMaterializedSkillName(
   const candidates = mode === "managed" ? materialized.filter((entry) => entry.type === "managed") : materialized;
 
   if (candidates.length === 0) {
-    vscode.window.showWarningMessage(mode === "managed" ? "No managed skills are available." : "No materialized skills found.");
+    vscode.window.showWarningMessage(mode === "managed" ? "No managed skills are available." : "No local skills found.");
     return undefined;
   }
 
@@ -720,10 +846,67 @@ async function resolveMaterializedSkillName(
       description: entry.type === "manual" ? "Protected from updates" : "Managed",
       value: entry.folderName
     })),
-    { title: mode === "managed" ? "Select a managed skill" : "Select a materialized skill" }
+    { title: mode === "managed" ? "Select a managed skill" : "Select a local skill" }
   );
 
   return selected?.value;
+}
+
+async function pickManagedSkillMatch(
+  skillName: string,
+  matches: SkillItem[],
+  sourceManager: SourceManager
+): Promise<SkillItem | undefined> {
+  const sources = sourceManager.getSources();
+  const sourceById = new Map(sources.map((source) => [source.id, source]));
+
+  const selected = await vscode.window.showQuickPick(
+    matches.map((match) => {
+      const source = sourceById.get(match.sourceId);
+      const sourceLabel = source ? formatSourceForPicker(source) : "unknown source";
+
+      return {
+        label: match.slug,
+        description: sourceLabel,
+        detail: match.relativePath,
+        value: match
+      };
+    }),
+    {
+      title: `Multiple source matches found for '${skillName}'`,
+      placeHolder: "Choose which source to refresh from"
+    }
+  );
+
+  return selected?.value;
+}
+
+function normalizeManagedSkillFolderName(input: string): string {
+  const normalized = input.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/-+/g, "-");
+  return normalized || "skill";
+}
+
+function formatSourceForPicker(source: SkillSource): string {
+  const uri = source.canonicalRepoUri ?? source.uri;
+
+  try {
+    const parsed = new URL(uri);
+    if (parsed.hostname === "github.com") {
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      if (parts.length >= 2) {
+        return `${parts[0]}/${parts[1].replace(/\.git$/i, "")}`;
+      }
+    }
+  } catch {
+    // Non-URL form (for example SSH), fall back to raw value.
+  }
+
+  const sshMatch = uri.match(/^git@github\.com:([\w.-]+)\/([\w.-]+)(?:\.git)?$/i);
+  if (sshMatch) {
+    return `${sshMatch[1]}/${sshMatch[2]}`;
+  }
+
+  return uri;
 }
 
 async function pruneSkillSelectionsForSource(sourceId: string, stateStore: StateStore): Promise<void> {

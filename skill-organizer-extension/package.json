@@ -2,7 +2,7 @@
   "name": "skill-organizer-extension",
   "displayName": "Skill Organizer",
   "description": "Import and manage reusable AI skills from GitHub repos, skills.sh URLs, and local folders.",
-  "version": "0.0.5",
+  "version": "0.0.8",
   "publisher": "unthinkmedia",
   "license": "UNLICENSED",
   "repository": {
@@ -146,7 +146,7 @@
       },
       {
         "command": "skillOrganizer.uninstallSkill",
-        "title": "Uninstall Materialized Skill",
+        "title": "Remove Local Skill",
         "category": "Skill Organizer",
         "icon": {
           "light": "media/trash-light.svg",
@@ -156,7 +156,17 @@
       {
         "command": "skillOrganizer.updateManagedSkill",
         "title": "Update Managed Skill",
-        "category": "Skill Organizer"
+        "category": "Skill Organizer",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "skillOrganizer.explainMissingSkill",
+        "title": "Resolve Missing Skill",
+        "category": "Skill Organizer",
+        "icon": {
+          "light": "media/lightbulb-light.svg",
+          "dark": "media/lightbulb-dark.svg"
+        }
       },
       {
         "command": "skillOrganizer.extendAgents",
@@ -170,7 +180,7 @@
         "skillOrganizer.destinationPath": {
           "type": "string",
           "default": ".github/skills",
-          "description": "Workspace-relative path where enabled skills are copied when materialized."
+          "description": "Workspace-relative path where enabled skills are copied as local skills."
         },
         "skillOrganizer.materializationMode": {
           "type": "string",
@@ -178,7 +188,7 @@
             "copy"
           ],
           "default": "copy",
-          "description": "How skills are materialized into the workspace. V1 supports copy mode only."
+          "description": "How skills are copied into local workspace folders. V1 supports copy mode only."
         }
       }
     },
@@ -259,6 +269,11 @@
         {
           "command": "skillOrganizer.removeFromGlobalDefaults",
           "when": "view == skillOrganizer.skills && viewItem == globalSkillItem",
+          "group": "inline"
+        },
+        {
+          "command": "skillOrganizer.explainMissingSkill",
+          "when": "view == skillOrganizer.skills && (viewItem == missingWorkspaceSkillItem || viewItem == missingGlobalSkillItem)",
           "group": "inline"
         },
         {
