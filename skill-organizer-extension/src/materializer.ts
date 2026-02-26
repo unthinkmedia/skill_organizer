@@ -5,12 +5,21 @@ import { SkillItem } from "./types";
 
 const MANIFEST_FILE = ".skill-organizer.manifest.json";
 
-export async function materializeSkillsToWorkspace(skills: SkillItem[]): Promise<{ outputPath: string; copied: number; removed: number }> {
-  const workspaceFolder = getPrimaryWorkspaceFolder();
-  const config = vscode.workspace.getConfiguration("skillOrganizer");
-  const destinationPath = config.get<string>("destinationPath", ".github/skills");
+export interface SkillManifest {
+  managedFolders: string[];
+  manualFolders: string[];
+}
 
-  const outputPath = path.join(workspaceFolder.uri.fsPath, destinationPath);
+export interface MaterializedSkillEntry {
+  folderName: string;
+  type: "manual" | "managed";
+  path: string;
+  protectedFromUpdates: boolean;
+}
+
+export async function materializeSkillsToWorkspace(skills: SkillItem[]): Promise<{ outputPath: string; copied: number; removed: number; skippedManual: number }> {
+  const workspaceFolder = getPrimaryWorkspaceFolder();
+  const outputPath = getOutputPath(workspaceFolder);
   await fs.mkdir(outputPath, { recursive: true });
 
   const materializationPlan = skills.map((skill) => ({
@@ -20,16 +29,21 @@ export async function materializeSkillsToWorkspace(skills: SkillItem[]): Promise
 
   assertNoFolderNameConflicts(materializationPlan);
 
-  const expectedFolders = new Set(materializationPlan.map((entry) => entry.folderName));
+  const manifest = await loadManifest(outputPath);
+  const collidingManualFolders = new Set(
+    materializationPlan.map((entry) => entry.folderName).filter((folder) => manifest.manualFolders.includes(folder))
+  );
 
-  const previouslyManaged = await readManagedFolders(outputPath);
-  const foldersToRemove = [...previouslyManaged].filter((folder) => !expectedFolders.has(folder));
+  const filteredPlan = materializationPlan.filter((entry) => !collidingManualFolders.has(entry.folderName));
+  const expectedFolders = new Set(filteredPlan.map((entry) => entry.folderName));
+
+  const foldersToRemove = manifest.managedFolders.filter((folder) => !expectedFolders.has(folder));
   for (const folderName of foldersToRemove) {
     await fs.rm(path.join(outputPath, folderName), { recursive: true, force: true });
   }
 
   let copied = 0;
-  for (const { skill, folderName } of materializationPlan) {
+  for (const { skill, folderName } of filteredPlan) {
     const targetPath = path.join(outputPath, folderName);
 
     await fs.rm(targetPath, { recursive: true, force: true });
@@ -37,9 +51,144 @@ export async function materializeSkillsToWorkspace(skills: SkillItem[]): Promise
     copied += 1;
   }
 
-  await writeManagedFolders(outputPath, [...expectedFolders]);
+  await writeManifest(outputPath, {
+    managedFolders: [...expectedFolders],
+    manualFolders: manifest.manualFolders
+  });
 
-  return { outputPath, copied, removed: foldersToRemove.length };
+  return { outputPath, copied, removed: foldersToRemove.length, skippedManual: collidingManualFolders.size };
+}
+
+export async function listMaterializedSkills(): Promise<MaterializedSkillEntry[]> {
+  const workspaceFolder = getPrimaryWorkspaceFolder();
+  const outputPath = getOutputPath(workspaceFolder);
+  await fs.mkdir(outputPath, { recursive: true });
+
+  const manifest = await loadManifest(outputPath);
+  const entries: MaterializedSkillEntry[] = [];
+
+  for (const folderName of manifest.manualFolders) {
+    entries.push({
+      folderName,
+      type: "manual",
+      path: path.join(outputPath, folderName),
+      protectedFromUpdates: true
+    });
+  }
+
+  for (const folderName of manifest.managedFolders) {
+    entries.push({
+      folderName,
+      type: "managed",
+      path: path.join(outputPath, folderName),
+      protectedFromUpdates: false
+    });
+  }
+
+  entries.sort((a, b) => {
+    if (a.type === b.type) {
+      return a.folderName.localeCompare(b.folderName);
+    }
+
+    return a.type === "manual" ? -1 : 1;
+  });
+
+  return entries;
+}
+
+export async function markSkillAsManual(skillName: string): Promise<void> {
+  const outputPath = getOutputPath(getPrimaryWorkspaceFolder());
+  await fs.mkdir(outputPath, { recursive: true });
+
+  const manifest = await loadManifest(outputPath);
+  const normalized = sanitizeFolderName(skillName);
+
+  if (!manifest.manualFolders.includes(normalized)) {
+    manifest.manualFolders.push(normalized);
+  }
+
+  manifest.managedFolders = manifest.managedFolders.filter((folder) => folder !== normalized);
+  await writeManifest(outputPath, manifest);
+}
+
+export async function assertCanInstallMaterializedSkill(skillName: string, asManual: boolean): Promise<void> {
+  const outputPath = getOutputPath(getPrimaryWorkspaceFolder());
+  await fs.mkdir(outputPath, { recursive: true });
+
+  const manifest = await loadManifest(outputPath);
+  const normalized = sanitizeFolderName(skillName);
+  const existsInManaged = manifest.managedFolders.includes(normalized);
+  const existsInManual = manifest.manualFolders.includes(normalized);
+
+  if (!existsInManaged && !existsInManual) {
+    return;
+  }
+
+  if (!asManual && existsInManual) {
+    throw new Error(`Cannot install managed skill '${normalized}' because a manual protected skill with that name already exists.`);
+  }
+
+  throw new Error(`Cannot install '${normalized}' because a skill with the same name already exists in the manifest.`);
+}
+
+export async function markSkillAsManaged(skillName: string): Promise<void> {
+  const outputPath = getOutputPath(getPrimaryWorkspaceFolder());
+  await fs.mkdir(outputPath, { recursive: true });
+
+  const manifest = await loadManifest(outputPath);
+  const normalized = sanitizeFolderName(skillName);
+
+  if (!manifest.managedFolders.includes(normalized)) {
+    manifest.managedFolders.push(normalized);
+  }
+
+  manifest.manualFolders = manifest.manualFolders.filter((folder) => folder !== normalized);
+  await writeManifest(outputPath, manifest);
+}
+
+export async function uninstallMaterializedSkill(skillName: string, force = false): Promise<void> {
+  const outputPath = getOutputPath(getPrimaryWorkspaceFolder());
+  await fs.mkdir(outputPath, { recursive: true });
+
+  const manifest = await loadManifest(outputPath);
+  const normalized = sanitizeFolderName(skillName);
+  const isManual = manifest.manualFolders.includes(normalized);
+
+  if (isManual && !force) {
+    throw new Error(`'${normalized}' is manual and protected. Re-run uninstall with force enabled to remove it.`);
+  }
+
+  manifest.managedFolders = manifest.managedFolders.filter((folder) => folder !== normalized);
+  manifest.manualFolders = manifest.manualFolders.filter((folder) => folder !== normalized);
+
+  await fs.rm(path.join(outputPath, normalized), { recursive: true, force: true });
+  await writeManifest(outputPath, manifest);
+}
+
+export async function updateManagedMaterializedSkill(skillName: string, skills: SkillItem[]): Promise<void> {
+  const outputPath = getOutputPath(getPrimaryWorkspaceFolder());
+  await fs.mkdir(outputPath, { recursive: true });
+
+  const normalized = sanitizeFolderName(skillName);
+  const manifest = await loadManifest(outputPath);
+  if (manifest.manualFolders.includes(normalized)) {
+    throw new Error(`'${normalized}' is manual and protected from updates.`);
+  }
+
+  const matched = skills.find((skill) => createTargetFolderName(skill) === normalized);
+  if (!matched) {
+    throw new Error(`No enabled managed skill matches '${normalized}'.`);
+  }
+
+  const targetPath = path.join(outputPath, normalized);
+  await fs.rm(targetPath, { recursive: true, force: true });
+  await fs.cp(matched.absolutePath, targetPath, { recursive: true, force: true });
+
+  if (!manifest.managedFolders.includes(normalized)) {
+    manifest.managedFolders.push(normalized);
+  }
+
+  await writeManifest(outputPath, manifest);
 }
 
 function getPrimaryWorkspaceFolder(): vscode.WorkspaceFolder {
@@ -49,6 +198,12 @@ function getPrimaryWorkspaceFolder(): vscode.WorkspaceFolder {
   }
 
   return folders[0];
+}
+
+function getOutputPath(workspaceFolder: vscode.WorkspaceFolder): string {
+  const config = vscode.workspace.getConfiguration("skillOrganizer");
+  const destinationPath = config.get<string>("destinationPath", ".github/skills");
+  return path.join(workspaceFolder.uri.fsPath, destinationPath);
 }
 
 function createTargetFolderName(skill: SkillItem): string {
@@ -87,27 +242,61 @@ function assertNoFolderNameConflicts(plan: Array<{ skill: SkillItem; folderName:
 }
 
 async function readManagedFolders(outputPath: string): Promise<Set<string>> {
+  const manifest = await loadManifest(outputPath);
+  return new Set(manifest.managedFolders);
+}
+
+export async function loadManifest(outputPath: string): Promise<SkillManifest> {
   const manifestPath = path.join(outputPath, MANIFEST_FILE);
 
   try {
     const raw = await fs.readFile(manifestPath, "utf8");
-    const parsed = JSON.parse(raw) as { managedFolders?: unknown };
+    const parsed = JSON.parse(raw) as { managedFolders?: unknown; manualFolders?: unknown };
+
     if (!Array.isArray(parsed.managedFolders)) {
       throw new Error("invalid manifest");
     }
 
-    const folders = parsed.managedFolders.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
-    return new Set(folders);
+    const managedFolders = parsed.managedFolders.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+    const manualFolders = Array.isArray(parsed.manualFolders)
+      ? parsed.manualFolders.filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+      : [];
+
+    const manifest = {
+      managedFolders: [...new Set(managedFolders)].sort(),
+      manualFolders: [...new Set(manualFolders)].sort()
+    };
+
+    if (!Array.isArray(parsed.manualFolders)) {
+      await writeManifest(outputPath, manifest);
+    }
+
+    return manifest;
   } catch {
-    // Legacy fallback: before manifest existed, assume current top-level directories were managed.
-    const entries = await fs.readdir(outputPath, { withFileTypes: true });
-    const folderNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-    return new Set(folderNames);
+    return {
+      managedFolders: [],
+      manualFolders: []
+    };
   }
 }
 
 async function writeManagedFolders(outputPath: string, folders: string[]): Promise<void> {
+  const existing = await loadManifest(outputPath);
+  await writeManifest(outputPath, {
+    managedFolders: folders,
+    manualFolders: existing.manualFolders
+  });
+}
+
+async function writeManifest(outputPath: string, manifest: SkillManifest): Promise<void> {
   const manifestPath = path.join(outputPath, MANIFEST_FILE);
-  const payload = JSON.stringify({ managedFolders: [...folders].sort() }, null, 2);
+  const payload = JSON.stringify(
+    {
+      managedFolders: [...new Set(manifest.managedFolders)].sort(),
+      manualFolders: [...new Set(manifest.manualFolders)].sort()
+    },
+    null,
+    2
+  );
   await fs.writeFile(manifestPath, `${payload}\n`, "utf8");
 }

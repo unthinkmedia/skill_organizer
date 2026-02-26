@@ -23,10 +23,12 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 - Skill discovery from common folder patterns.
 - Workspace-level enable and disable controls.
 - Global default toggle per skill.
+- Manual vs managed materialized skill tracking.
 - Apply global profile into the active workspace.
 - Sync selected workspace skills into destination files.
 - Organized sections in the Skills view:
   - Sources
+  - Materialized
   - Workspace Enabled
   - Global Defaults
 
@@ -36,7 +38,8 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 2. Run `Skill Organizer: Add Source`.
 3. Choose GitHub or `skills.sh`, then provide the source URL.
 4. Enable the skills you want.
-5. Run `Skill Organizer: Sync Workspace Skills` to materialize into `.github/skills`.
+5. Run `Skill Organizer: Apply Sync (Overwrite Managed Skills)` to materialize into `.github/skills`.
+6. Optional: Use `Mark as Manual` in the Materialized section to protect a copied skill from updates.
 
 ## Commands
 
@@ -46,7 +49,33 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 - `Skill Organizer: Enable or Disable Skill`
 - `Skill Organizer: Toggle Global Default`
 - `Skill Organizer: Apply Global Profile to Workspace`
-- `Skill Organizer: Sync Workspace Skills`
+- `Skill Organizer: Apply Sync (Overwrite Managed Skills)`
+- `Skill Organizer: Mark as Manual`
+- `Skill Organizer: Mark as Managed`
+- `Skill Organizer: Update Managed Skill`
+- `Skill Organizer: Uninstall Materialized Skill`
+
+## Manual vs Managed Skills
+
+Skill Organizer tracks materialized folders in `.skill-organizer.manifest.json`:
+
+```json
+{
+  "managedFolders": ["example-skill"],
+  "manualFolders": ["my-handcrafted-skill"]
+}
+```
+
+- Managed (`📦`) skills are updated/replaced by sync.
+- Manual (`✋`) skills are protected from sync updates and removals.
+- Existing manifests migrate automatically by adding `manualFolders: []` when missing.
+
+### Protection Rules
+
+- Sync skips manual folders (they remain untouched).
+- `Update Managed Skill` is only available for managed entries.
+- `Uninstall Materialized Skill` requires force confirmation for manual entries.
+- `Mark as Manual` and `Mark as Managed` move skills between manifest arrays.
 
 Most management actions are also available from the `...` title menu in the Skills view.
 

@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { listMaterializedSkills, MaterializedSkillEntry } from "./materializer";
 import { SourceManager } from "./sourceManager";
 import { StateStore } from "./stateStore";
 import { SkillItem } from "./types";
@@ -24,6 +25,7 @@ export class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNod
     if (!element) {
       return [
         new SectionTreeNode("Sources", "Configured repositories", "repo", "sources"),
+        new SectionTreeNode("Materialized", "Folders in destination path", "folder-library", "materialized"),
         new SectionTreeNode("Workspace Enabled", "Active in this workspace", "checklist", "workspace"),
         new SectionTreeNode("Global Defaults", "Applied by global profile", "star-full", "global")
       ];
@@ -73,6 +75,14 @@ export class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNod
         return nodes.length > 0 ? nodes : [new MessageTreeNode("No global defaults", "Mark skills as global defaults", "star-empty")];
       }
 
+      if (element.sectionType === "materialized") {
+        const materialized = await listMaterializedSkills();
+        const nodes = materialized.map((entry) => toMaterializedSkillNode(entry));
+        return nodes.length > 0
+          ? nodes
+          : [new MessageTreeNode("No materialized skills", "Run sync to copy enabled skills", "folder-opened")];
+      }
+
       return [];
     }
 
@@ -92,7 +102,21 @@ export class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNod
 
 export abstract class SkillsTreeNode extends vscode.TreeItem {}
 
-type SectionType = "sources" | "workspace" | "global";
+export class MaterializedSkillTreeNode extends SkillsTreeNode {
+  constructor(
+    item: vscode.TreeItem,
+    public readonly entry: MaterializedSkillEntry
+  ) {
+    super(item.label ?? "", item.collapsibleState);
+    this.contextValue = item.contextValue;
+    this.id = item.id;
+    this.description = item.description;
+    this.tooltip = item.tooltip;
+    this.iconPath = item.iconPath;
+  }
+}
+
+type SectionType = "sources" | "workspace" | "global" | "materialized";
 
 export class SectionTreeNode extends SkillsTreeNode {
   constructor(
@@ -207,6 +231,22 @@ function toGlobalSkillNode(skill: SkillItem | undefined): SkillTreeNode | Messag
   return new SkillTreeNode(item, skill, false, true);
 }
 
+function toMaterializedSkillNode(entry: MaterializedSkillEntry): MaterializedSkillTreeNode {
+  const isManual = entry.type === "manual";
+  const item = new vscode.TreeItem(
+    `${isManual ? "✋" : "📦"} ${entry.folderName}`,
+    vscode.TreeItemCollapsibleState.None
+  );
+
+  item.id = createTreeItemId(entry.folderName, "materialized");
+  item.contextValue = isManual ? "materializedManualSkillItem" : "materializedManagedSkillItem";
+  item.description = isManual ? "Protected from updates" : "Managed by sync";
+  item.tooltip = `${entry.path}\n${isManual ? "Protected from updates" : "Managed by Skill Organizer"}`;
+  item.iconPath = new vscode.ThemeIcon(isManual ? "lock" : "package");
+
+  return new MaterializedSkillTreeNode(item, entry);
+}
+
 function getSourceLabel(uri: string): string {
   try {
     const url = new URL(uri);
@@ -228,6 +268,6 @@ function getSourceLabel(uri: string): string {
   return uri;
 }
 
-function createTreeItemId(skillId: string, section: "sources" | "workspace" | "global"): string {
+function createTreeItemId(skillId: string, section: "sources" | "workspace" | "global" | "materialized"): string {
   return `${section}:${skillId}`;
 }

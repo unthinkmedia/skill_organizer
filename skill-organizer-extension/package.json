@@ -131,7 +131,31 @@
       },
       {
         "command": "skillOrganizer.syncWorkspaceSkills",
-        "title": "Sync Workspace Skills",
+        "title": "Apply Sync (Overwrite Managed Skills)",
+        "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.markManual",
+        "title": "Mark as Manual",
+        "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.markManaged",
+        "title": "Mark as Managed",
+        "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.uninstallSkill",
+        "title": "Uninstall Materialized Skill",
+        "category": "Skill Organizer",
+        "icon": {
+          "light": "media/trash-light.svg",
+          "dark": "media/trash-dark.svg"
+        }
+      },
+      {
+        "command": "skillOrganizer.updateManagedSkill",
+        "title": "Update Managed Skill",
         "category": "Skill Organizer"
       },
       {
@@ -235,6 +259,26 @@
         {
           "command": "skillOrganizer.removeFromGlobalDefaults",
           "when": "view == skillOrganizer.skills && viewItem == globalSkillItem",
+          "group": "inline"
+        },
+        {
+          "command": "skillOrganizer.updateManagedSkill",
+          "when": "view == skillOrganizer.skills && viewItem == materializedManagedSkillItem",
+          "group": "inline"
+        },
+        {
+          "command": "skillOrganizer.markManual",
+          "when": "view == skillOrganizer.skills && viewItem == materializedManagedSkillItem",
+          "group": "navigation"
+        },
+        {
+          "command": "skillOrganizer.markManaged",
+          "when": "view == skillOrganizer.skills && viewItem == materializedManualSkillItem",
+          "group": "navigation"
+        },
+        {
+          "command": "skillOrganizer.uninstallSkill",
+          "when": "view == skillOrganizer.skills && (viewItem == materializedManagedSkillItem || viewItem == materializedManualSkillItem)",
           "group": "inline"
         }
       ],

@@ -1,6 +1,14 @@
 import * as vscode from "vscode";
-import { materializeSkillsToWorkspace } from "./materializer";
-import { SkillTreeNode, SkillsTreeProvider, SourceTreeNode } from "./skillsTreeProvider";
+import {
+  assertCanInstallMaterializedSkill,
+  listMaterializedSkills,
+  markSkillAsManaged,
+  markSkillAsManual,
+  materializeSkillsToWorkspace,
+  uninstallMaterializedSkill,
+  updateManagedMaterializedSkill
+} from "./materializer";
+import { MaterializedSkillTreeNode, SkillTreeNode, SkillsTreeProvider, SourceTreeNode } from "./skillsTreeProvider";
 import { SourceManager } from "./sourceManager";
 import { StateStore } from "./stateStore";
 
@@ -146,6 +154,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     await runCommand(async () => {
+      const installMode = await vscode.window.showQuickPick(
+        [
+          { label: "$(package) Install as managed", value: "managed" },
+          { label: "$(lock) Install as manual (protected)", value: "manual" }
+        ],
+        {
+          title: "Install Mode",
+          placeHolder: "Choose how this skill should be tracked"
+        }
+      );
+
+      if (!installMode) {
+        return;
+      }
+
       const resolved = await runWithProgress("Resolving skills.sh source", async () => {
         return sourceManager.addFromSkillsSh(inputUrl.trim());
       });
@@ -154,8 +177,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const skill = allSkills.find((s) => s.sourceId === resolved.source.id && s.slug === resolved.skillSlug);
 
       if (skill) {
+        await assertCanInstallMaterializedSkill(skill.slug, installMode.value === "manual");
         await enableSkillInWorkspace(skill.id, stateStore, sourceManager);
-        vscode.window.showInformationMessage(`Imported ${skill.slug} from ${resolved.source.uri} and enabled it in this workspace.`);
+
+        if (installMode.value === "manual") {
+          await markSkillAsManual(skill.slug);
+        }
+
+        vscode.window.showInformationMessage(
+          `Imported ${skill.slug} from ${resolved.source.uri} and enabled it in this workspace as ${installMode.value}.`
+        );
       } else {
         vscode.window.showWarningMessage(
           `Source added, but skill '${resolved.skillSlug}' was not found. Run Refresh and browse available skills.`
@@ -367,6 +398,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   const syncWorkspaceSkills = vscode.commands.registerCommand("skillOrganizer.syncWorkspaceSkills", async () => {
+    const confirm = await confirmSyncWorkspaceSkills(stateStore);
+    if (!confirm) {
+      return;
+    }
+
     await runCommand(async () => {
       const enabledIds = stateStore.getWorkspaceEnabled();
       if (enabledIds.length === 0) {
@@ -390,9 +426,101 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return materializeSkillsToWorkspace(skills);
       });
 
-      vscode.window.showInformationMessage(`Materialized ${result.copied} skill(s) to ${result.outputPath}. Removed ${result.removed} stale folder(s).`);
+      const skippedMessage = result.skippedManual > 0 ? ` Skipped ${result.skippedManual} manual protected skill(s).` : "";
+      vscode.window.showInformationMessage(
+        `Materialized ${result.copied} skill(s) to ${result.outputPath}. Removed ${result.removed} stale folder(s).${skippedMessage}`
+      );
+      treeProvider.refresh();
     });
   });
+
+  const markManual = vscode.commands.registerCommand("skillOrganizer.markManual", async (node?: MaterializedSkillTreeNode) => {
+    await runCommand(async () => {
+      const skillName = await resolveMaterializedSkillName(node, "all");
+      if (!skillName) {
+        return;
+      }
+
+      await markSkillAsManual(skillName);
+      treeProvider.refresh();
+      vscode.window.showInformationMessage(`Marked '${skillName}' as manual (protected from updates).`);
+    });
+  });
+
+  const markManaged = vscode.commands.registerCommand("skillOrganizer.markManaged", async (node?: MaterializedSkillTreeNode) => {
+    await runCommand(async () => {
+      const skillName = await resolveMaterializedSkillName(node, "all");
+      if (!skillName) {
+        return;
+      }
+
+      await markSkillAsManaged(skillName);
+      treeProvider.refresh();
+      vscode.window.showInformationMessage(`Marked '${skillName}' as managed.`);
+    });
+  });
+
+  const uninstallSkill = vscode.commands.registerCommand(
+    "skillOrganizer.uninstallSkill",
+    async (node?: MaterializedSkillTreeNode) => {
+      await runCommand(async () => {
+        const skillName = await resolveMaterializedSkillName(node, "all");
+        if (!skillName) {
+          return;
+        }
+
+        const isManual = node?.entry.type === "manual";
+        if (isManual) {
+          const forceConfirm = await vscode.window.showWarningMessage(
+            `'${skillName}' is manual and protected. Remove anyway?`,
+            { modal: true },
+            "Force Remove"
+          );
+
+          if (forceConfirm !== "Force Remove") {
+            return;
+          }
+
+          await uninstallMaterializedSkill(skillName, true);
+        } else {
+          const confirm = await vscode.window.showWarningMessage(
+            `Remove '${skillName}' from destination folder and manifest?`,
+            { modal: true },
+            "Remove"
+          );
+
+          if (confirm !== "Remove") {
+            return;
+          }
+
+          await uninstallMaterializedSkill(skillName, false);
+        }
+
+        treeProvider.refresh();
+        vscode.window.showInformationMessage(`Uninstalled '${skillName}'.`);
+      });
+    }
+  );
+
+  const updateManagedSkill = vscode.commands.registerCommand(
+    "skillOrganizer.updateManagedSkill",
+    async (node?: MaterializedSkillTreeNode) => {
+      await runCommand(async () => {
+        const skillName = await resolveMaterializedSkillName(node, "managed");
+        if (!skillName) {
+          return;
+        }
+
+        const enabledIds = stateStore.getWorkspaceEnabled();
+        const resolvedSkills = await Promise.all(enabledIds.map((id) => sourceManager.getSkillById(id)));
+        const skills = resolvedSkills.filter((skill): skill is NonNullable<typeof skill> => Boolean(skill));
+
+        await updateManagedMaterializedSkill(skillName, skills);
+        treeProvider.refresh();
+        vscode.window.showInformationMessage(`Updated managed skill '${skillName}'.`);
+      });
+    }
+  );
 
   const extendAgents = vscode.commands.registerCommand("skillOrganizer.extendAgents", async () => {
     await runCommand(async () => {
@@ -436,8 +564,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     removeFromGlobalDefaults,
     applyGlobalProfile,
     syncWorkspaceSkills,
-    extendAgents
+    extendAgents,
+    markManual,
+    markManaged,
+    uninstallSkill,
+    updateManagedSkill
   );
+}
+
+async function confirmSyncWorkspaceSkills(stateStore: StateStore): Promise<boolean> {
+  const config = vscode.workspace.getConfiguration("skillOrganizer");
+  const destinationPath = config.get<string>("destinationPath", ".github/skills");
+  const enabledCount = stateStore.getWorkspaceEnabled().length;
+
+  const message = enabledCount === 0
+    ? `No skills are enabled. Sync will remove Skill Organizer-managed folders from '${destinationPath}'.`
+    : `Sync will overwrite enabled skill folders and remove stale Skill Organizer-managed folders in '${destinationPath}'.`;
+
+  const detail = "Review local changes before syncing. Folders not tracked by Skill Organizer are preserved.";
+  const confirm = await vscode.window.showWarningMessage(message, { modal: true, detail }, "Apply Sync");
+  return confirm === "Apply Sync";
 }
 
 export function deactivate(): void {
@@ -545,6 +691,39 @@ async function syncMaterializedEnabledSkills(sourceManager: SourceManager, state
   }
 
   await materializeSkillsToWorkspace(skills);
+}
+
+async function resolveMaterializedSkillName(
+  node: MaterializedSkillTreeNode | undefined,
+  mode: "all" | "managed"
+): Promise<string | undefined> {
+  if (node?.entry.folderName) {
+    if (mode === "managed" && node.entry.type !== "managed") {
+      vscode.window.showWarningMessage("Manual skills are protected from update.");
+      return undefined;
+    }
+
+    return node.entry.folderName;
+  }
+
+  const materialized = await listMaterializedSkills();
+  const candidates = mode === "managed" ? materialized.filter((entry) => entry.type === "managed") : materialized;
+
+  if (candidates.length === 0) {
+    vscode.window.showWarningMessage(mode === "managed" ? "No managed skills are available." : "No materialized skills found.");
+    return undefined;
+  }
+
+  const selected = await vscode.window.showQuickPick(
+    candidates.map((entry) => ({
+      label: entry.folderName,
+      description: entry.type === "manual" ? "Protected from updates" : "Managed",
+      value: entry.folderName
+    })),
+    { title: mode === "managed" ? "Select a managed skill" : "Select a materialized skill" }
+  );
+
+  return selected?.value;
 }
 
 async function pruneSkillSelectionsForSource(sourceId: string, stateStore: StateStore): Promise<void> {
