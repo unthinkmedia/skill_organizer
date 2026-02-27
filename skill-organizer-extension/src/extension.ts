@@ -835,13 +835,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const sent = await openCopilotChatWithPrompt(EXTEND_AGENTS_PROMPT);
       if (sent) {
-        vscode.window.showInformationMessage("Opened Copilot Chat with the Extend AGENTS.md prompt.");
+        vscode.window.showInformationMessage("Opened Copilot Chat with the Review AGENTS.md prompt.");
         return;
       }
 
       await vscode.env.clipboard.writeText(EXTEND_AGENTS_PROMPT);
       await openCopilotChat();
-      vscode.window.showInformationMessage("Prompt copied. Paste into Copilot Chat to extend AGENTS.md.");
+      vscode.window.showInformationMessage("Prompt copied. Paste into Copilot Chat to review AGENTS.md.");
     });
   });
 
@@ -1170,8 +1170,8 @@ async function confirmSyncWorkspaceSkills(stateStore: StateStore): Promise<boole
     : `Sync will overwrite enabled skill folders and remove stale Skill Organizer-managed folders in '${destinationPath}'.`;
 
   const detail = "Review local changes before syncing. Folders not tracked by Skill Organizer are preserved.";
-  const confirm = await vscode.window.showWarningMessage(message, { modal: true, detail }, "Apply Sync");
-  return confirm === "Apply Sync";
+  const confirm = await vscode.window.showWarningMessage(message, { modal: true, detail }, "Resync");
+  return confirm === "Resync";
 }
 
 export function deactivate(): void {
