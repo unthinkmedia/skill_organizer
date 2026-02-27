@@ -10,7 +10,9 @@ import {
   uninstallMaterializedSkill,
   updateManagedMaterializedSkill
 } from "./materializer";
+import { createGitHubRepo, getGitHubUsername, listGitHubUserOrgs, parseGitHubOwnerRepo, submitSkillPR } from "./githubApi";
 import { MaterializedSkillTreeNode, MissingSkillTreeNode, SkillTreeNode, SkillsTreeProvider, SourceTreeNode } from "./skillsTreeProvider";
+import { searchSkills } from "./skillSearch";
 import { SourceManager } from "./sourceManager";
 import { StateStore } from "./stateStore";
 import { SkillItem, SkillSource } from "./types";
@@ -108,6 +110,53 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
   });
+
+  // --- File system watcher for auto-refresh ---
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  const debouncedRefresh = () => {
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+    }
+    refreshTimer = setTimeout(() => {
+      treeProvider.refresh();
+    }, 500);
+  };
+
+  let skillsWatcher: vscode.FileSystemWatcher | undefined;
+
+  function createSkillsWatcher(): vscode.FileSystemWatcher | undefined {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      return undefined;
+    }
+
+    const config = vscode.workspace.getConfiguration("skillOrganizer");
+    const destinationPath = config.get<string>("destinationPath", ".github/skills");
+    const pattern = new vscode.RelativePattern(workspaceFolder, `${destinationPath}/**/SKILL.md`);
+    const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+    watcher.onDidCreate(debouncedRefresh);
+    watcher.onDidDelete(debouncedRefresh);
+    watcher.onDidChange(debouncedRefresh);
+    return watcher;
+  }
+
+  skillsWatcher = createSkillsWatcher();
+  if (skillsWatcher) {
+    context.subscriptions.push(skillsWatcher);
+  }
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("skillOrganizer.destinationPath")) {
+        skillsWatcher?.dispose();
+        skillsWatcher = createSkillsWatcher();
+        if (skillsWatcher) {
+          context.subscriptions.push(skillsWatcher);
+        }
+        treeProvider.refresh();
+      }
+    })
+  );
 
   const conflictDecorationProvider = vscode.window.registerFileDecorationProvider({
     provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
@@ -777,6 +826,291 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   });
 
+  const searchSkillsCommand = vscode.commands.registerCommand("skillOrganizer.searchSkills", async () => {
+    const allSkills = await sourceManager.getSkills();
+    if (allSkills.length === 0) {
+      vscode.window.showWarningMessage("No skills available. Add a source first.");
+      return;
+    }
+
+    const query = await vscode.window.showInputBox({
+      title: "Search Skills",
+      prompt: "Describe what you're looking for",
+      placeHolder: "e.g. help me deploy, make presentations, set up auth",
+      ignoreFocusOut: true
+    });
+
+    if (!query) {
+      return;
+    }
+
+    await runCommand(async () => {
+      const workspaceEnabled = new Set(stateStore.getWorkspaceEnabled());
+
+      const results = await runWithProgress("Searching skills", async () => {
+        const tokenSource = new vscode.CancellationTokenSource();
+        try {
+          return await searchSkills(query, allSkills, tokenSource.token);
+        } finally {
+          tokenSource.dispose();
+        }
+      });
+
+      if (results.length === 0) {
+        vscode.window.showInformationMessage(`No skills matched "${query}".`);
+        return;
+      }
+
+      const items = results.map((result) => {
+        const enabled = workspaceEnabled.has(result.skill.id);
+        const statusIcon = enabled ? "$(check)" : "$(circle-large-outline)";
+        const name = result.skill.metadata?.name ?? result.skill.slug;
+        const description = result.reason ?? result.skill.metadata?.description ?? "";
+        return {
+          label: `${statusIcon} ${name}`,
+          description: result.skill.slug !== name ? result.skill.slug : "",
+          detail: description,
+          value: result.skill
+        };
+      });
+
+      const selected = await vscode.window.showQuickPick(items, {
+        title: `Search results for "${query}"`,
+        placeHolder: "Select a skill to enable or disable",
+        matchOnDescription: true,
+        matchOnDetail: true
+      });
+
+      if (selected) {
+        await vscode.commands.executeCommand("skillOrganizer.toggleSkill", selected.value.id);
+      }
+    });
+  });
+
+  const submitSkillPRCommand = vscode.commands.registerCommand(
+    "skillOrganizer.submitSkillPR",
+    async (node?: MaterializedSkillTreeNode) => {
+      await runCommand(async () => {
+        // 1. Pick a local skill to submit.
+        const materialized = await listMaterializedSkills();
+        if (materialized.length === 0) {
+          vscode.window.showWarningMessage("No local skills found. Enable and sync a skill first, or create one manually.");
+          return;
+        }
+
+        let skillName: string | undefined;
+        let skillPath: string | undefined;
+
+        if (node?.entry) {
+          skillName = node.entry.folderName;
+          skillPath = node.entry.path;
+        } else {
+          const selected = await vscode.window.showQuickPick(
+            materialized.map((entry) => ({
+              label: entry.folderName,
+              description: entry.type === "manual" ? "Local (detached)" : "Managed",
+              value: entry
+            })),
+            { title: "Submit Skill as PR", placeHolder: "Select a skill to submit" }
+          );
+
+          if (!selected) {
+            return;
+          }
+
+          skillName = selected.value.folderName;
+          skillPath = selected.value.path;
+        }
+
+        // 2. Pick the target repo — existing source, manual URL, or create new.
+        const sources = sourceManager.getSources().filter((s) => {
+          const parsed = parseGitHubOwnerRepo(s.canonicalRepoUri ?? s.uri);
+          return s.type === "gitRepo" && parsed !== undefined;
+        });
+
+        type TargetChoice = { kind: "source"; source: SkillSource } | { kind: "url" } | { kind: "create" };
+
+        const quickPickItems: Array<{ label: string; description?: string; value: TargetChoice }> = [];
+
+        for (const source of sources) {
+          quickPickItems.push({
+            label: `$(repo) ${getSourceLabel(source.uri)}`,
+            description: source.canonicalRepoUri ?? source.uri,
+            value: { kind: "source", source }
+          });
+        }
+
+        quickPickItems.push(
+          { label: "$(link-external) Enter a GitHub repo URL", value: { kind: "url" } },
+          { label: "$(plus) Create a new GitHub repo", value: { kind: "create" } }
+        );
+
+        const targetChoice = await vscode.window.showQuickPick(quickPickItems, {
+          title: "Target Repository",
+          placeHolder: "Where should this skill be submitted?"
+        });
+
+        if (!targetChoice) {
+          return;
+        }
+
+        // Authenticate — let user pick which GitHub account to use.
+        const session = await pickGitHubSession();
+
+        if (!session) {
+          return;
+        }
+
+        let targetOwner: string;
+        let targetRepo: string;
+        let targetBranch: string | undefined;
+        let targetSkillsRoot: string | undefined;
+
+        if (targetChoice.value.kind === "source") {
+          const src = targetChoice.value.source;
+          const parsed = parseGitHubOwnerRepo(src.canonicalRepoUri ?? src.uri);
+          if (!parsed) {
+            throw new Error("Could not parse owner/repo from the selected source.");
+          }
+
+          targetOwner = parsed.owner;
+          targetRepo = parsed.repo;
+          targetBranch = src.branch;
+          targetSkillsRoot = src.skillsRootPath;
+        } else if (targetChoice.value.kind === "url") {
+          const repoUrl = await vscode.window.showInputBox({
+            title: "GitHub Repository URL",
+            prompt: "Enter the GitHub repo URL to submit the PR to",
+            placeHolder: "https://github.com/owner/repo",
+            ignoreFocusOut: true
+          });
+
+          if (!repoUrl) {
+            return;
+          }
+
+          const parsed = parseGitHubOwnerRepo(repoUrl.trim());
+          if (!parsed) {
+            throw new Error("Invalid GitHub URL. Use a format like https://github.com/owner/repo");
+          }
+
+          targetOwner = parsed.owner;
+          targetRepo = parsed.repo;
+        } else {
+          // Create new repo.
+          const username = await runWithProgress("Loading GitHub account", () => getGitHubUsername(session.accessToken));
+          const orgs = await runWithProgress("Loading organizations", () => listGitHubUserOrgs(session.accessToken));
+
+          const ownerChoices = [
+            { label: `$(person) ${username}`, description: "Personal account", value: username },
+            ...orgs.map((org) => ({ label: `$(organization) ${org}`, description: "Organization", value: org }))
+          ];
+
+          const ownerPick = ownerChoices.length === 1
+            ? ownerChoices[0]
+            : await vscode.window.showQuickPick(ownerChoices, {
+                title: "Repository Owner",
+                placeHolder: "Where should the new repo be created?"
+              });
+
+          if (!ownerPick) {
+            return;
+          }
+
+          const repoName = await vscode.window.showInputBox({
+            title: "Repository Name",
+            prompt: "Name for the new skills repository",
+            value: "my-skills",
+            ignoreFocusOut: true,
+            validateInput: (input) => {
+              if (!/^[a-zA-Z0-9._-]+$/.test(input)) {
+                return "Use only letters, numbers, hyphens, dots, and underscores.";
+              }
+              return undefined;
+            }
+          });
+
+          if (!repoName) {
+            return;
+          }
+
+          const visibilityPick = await vscode.window.showQuickPick(
+            [
+              { label: "$(globe) Public", value: false },
+              { label: "$(lock) Private", value: true }
+            ],
+            { title: "Repository Visibility" }
+          );
+
+          if (!visibilityPick) {
+            return;
+          }
+
+          const selectedOwner = ownerPick.value;
+          const isOrg = selectedOwner !== username;
+
+          const created = await runWithProgress("Creating repository", () =>
+            createGitHubRepo(
+              session.accessToken,
+              repoName,
+              "Reusable AI skills collection",
+              isOrg ? selectedOwner : undefined,
+              visibilityPick.value
+            )
+          );
+
+          targetOwner = created.owner;
+          targetRepo = created.repo;
+          targetBranch = created.defaultBranch;
+
+          vscode.window.showInformationMessage(`Created ${created.owner}/${created.repo}.`);
+        }
+
+        // 3. PR title and body.
+        const prTitle = await vscode.window.showInputBox({
+          title: "PR Title",
+          value: `Add skill: ${skillName}`,
+          ignoreFocusOut: true
+        });
+
+        if (!prTitle) {
+          return;
+        }
+
+        const prBody = await vscode.window.showInputBox({
+          title: "PR Description (optional)",
+          value: `Adds the \`${skillName}\` skill.\n\nSubmitted via Skill Organizer.`,
+          ignoreFocusOut: true
+        });
+
+        // 4. Submit.
+        const result = await runWithProgress("Submitting skill as PR", async () => {
+          return submitSkillPR({
+            token: session.accessToken,
+            owner: targetOwner,
+            repo: targetRepo,
+            baseBranch: targetBranch,
+            skillsRootPath: targetSkillsRoot,
+            skillSlug: skillName!,
+            localSkillPath: skillPath!,
+            prTitle,
+            prBody: prBody ?? undefined
+          });
+        });
+
+        const forkedNote = result.forked ? " (via fork)" : "";
+        const action = await vscode.window.showInformationMessage(
+          `PR #${result.prNumber} created${forkedNote}.`,
+          "Open PR"
+        );
+
+        if (action === "Open PR") {
+          vscode.env.openExternal(vscode.Uri.parse(result.prUrl));
+        }
+      });
+    }
+  );
+
   context.subscriptions.push(
     treeView,
     conflictDecorationProvider,
@@ -801,7 +1135,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     markManual,
     markManaged,
     uninstallSkill,
-    updateManagedSkill
+    updateManagedSkill,
+    searchSkillsCommand,
+    submitSkillPRCommand
   );
 }
 
@@ -1235,4 +1571,66 @@ async function uriExists(uri: vscode.Uri): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function pickGitHubSession(): Promise<vscode.AuthenticationSession | undefined> {
+  // Check if there's already a signed-in session (without prompting).
+  const existingSession = await vscode.authentication.getSession("github", ["repo"], {
+    createIfNone: false
+  });
+
+  type AccountChoice = "current" | "switch";
+
+  const items: Array<{ label: string; description?: string; value: AccountChoice }> = [];
+
+  if (existingSession) {
+    items.push({
+      label: `$(github) ${existingSession.account.label}`,
+      description: "Currently signed in",
+      value: "current"
+    });
+  }
+
+  items.push({
+    label: existingSession ? "$(sign-in) Use a different GitHub account" : "$(sign-in) Sign in to GitHub",
+    value: "switch"
+  });
+
+  // If no session exists, skip the picker and go straight to sign-in.
+  if (!existingSession) {
+    const session = await vscode.authentication.getSession("github", ["repo"], {
+      createIfNone: true
+    });
+
+    if (!session?.accessToken) {
+      throw new Error("GitHub authentication is required. Sign in and try again.");
+    }
+
+    return session;
+  }
+
+  const selected = await vscode.window.showQuickPick(items, {
+    title: "GitHub Account",
+    placeHolder: "Which GitHub account should be used for this PR?"
+  });
+
+  if (!selected) {
+    return undefined;
+  }
+
+  if (selected.value === "current") {
+    return existingSession;
+  }
+
+  // Force account re-selection to pick a different account.
+  const session = await vscode.authentication.getSession("github", ["repo"], {
+    createIfNone: true,
+    clearSessionPreference: true
+  });
+
+  if (!session?.accessToken) {
+    throw new Error("GitHub authentication is required. Sign in and try again.");
+  }
+
+  return session;
 }

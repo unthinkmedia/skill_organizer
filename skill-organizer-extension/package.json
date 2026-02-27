@@ -2,7 +2,7 @@
   "name": "skill-organizer-extension",
   "displayName": "Skill Organizer",
   "description": "Import and manage reusable AI skills from GitHub repos, skills.sh URLs, and local folders.",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "publisher": "unthinkmedia",
   "license": "UNLICENSED",
   "repository": {
@@ -189,6 +189,18 @@
         "command": "skillOrganizer.explainConflict",
         "title": "Explain Conflict",
         "category": "Skill Organizer"
+      },
+      {
+        "command": "skillOrganizer.searchSkills",
+        "title": "Search Skills",
+        "category": "Skill Organizer",
+        "icon": "$(search)"
+      },
+      {
+        "command": "skillOrganizer.submitSkillPR",
+        "title": "Submit Skill as PR",
+        "category": "Skill Organizer",
+        "icon": "$(git-pull-request-create)"
       }
     ],
     "configuration": {
@@ -213,6 +225,11 @@
       "view/title": [
         {
           "command": "skillOrganizer.addSource",
+          "when": "view == skillOrganizer.skills",
+          "group": "navigation"
+        },
+        {
+          "command": "skillOrganizer.searchSkills",
           "when": "view == skillOrganizer.skills",
           "group": "navigation"
         },
@@ -245,6 +262,11 @@
           "command": "skillOrganizer.syncWorkspaceSkills",
           "when": "view == skillOrganizer.skills",
           "group": "2_actions@6"
+        },
+        {
+          "command": "skillOrganizer.submitSkillPR",
+          "when": "view == skillOrganizer.skills",
+          "group": "2_actions@7"
         }
       ],
       "view/item/context": [
@@ -322,6 +344,11 @@
           "command": "skillOrganizer.uninstallSkill",
           "when": "view == skillOrganizer.skills && (viewItem == materializedManagedSkillItem || viewItem == materializedManualSkillItem)",
           "group": "inline"
+        },
+        {
+          "command": "skillOrganizer.submitSkillPR",
+          "when": "view == skillOrganizer.skills && (viewItem == materializedManagedSkillItem || viewItem == materializedManualSkillItem)",
+          "group": "navigation"
         }
       ],
       "commandPalette": [

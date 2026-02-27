@@ -18,6 +18,12 @@ export interface SkillItem {
   relativePath: string;
   absolutePath: string;
   versionHash?: string;
+  metadata?: SkillMetadata;
+}
+
+export interface SkillMetadata {
+  name: string;
+  description: string;
 }
 
 export interface ResolvedSkillsShUrl {
