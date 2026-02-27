@@ -1,4 +1,5 @@
 import * as fs from "fs/promises";
+import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 import { SkillItem } from "./types";
@@ -420,4 +421,49 @@ async function writeManifest(outputPath: string, manifest: SkillManifest): Promi
     2
   );
   await fs.writeFile(manifestPath, `${payload}\n`, "utf8");
+}
+
+function resolveGlobalOutputPath(): string {
+  const config = vscode.workspace.getConfiguration("skillOrganizer");
+  const raw = config.get<string>("globalDestinationPath", "~/.agents/skills");
+  return raw.startsWith("~") ? path.join(os.homedir(), raw.slice(1)) : raw;
+}
+
+export async function materializeSkillsToGlobalFolder(skills: SkillItem[]): Promise<{ outputPath: string; copied: number; removed: number }> {
+  const outputPath = resolveGlobalOutputPath();
+  await fs.mkdir(outputPath, { recursive: true });
+
+  const materializationPlan = skills.map((skill) => ({
+    skill,
+    folderName: createTargetFolderName(skill)
+  }));
+
+  assertNoFolderNameConflicts(materializationPlan);
+
+  const manifest = await loadManifest(outputPath);
+  const expectedFolders = new Set(materializationPlan.map((entry) => entry.folderName));
+
+  const foldersToRemove = manifest.managedFolders.filter((folder) => !expectedFolders.has(folder));
+  for (const folderName of foldersToRemove) {
+    await fs.rm(path.join(outputPath, folderName), { recursive: true, force: true });
+  }
+
+  let copied = 0;
+  for (const { skill, folderName } of materializationPlan) {
+    const targetPath = path.join(outputPath, folderName);
+    await fs.rm(targetPath, { recursive: true, force: true });
+    await fs.cp(skill.absolutePath, targetPath, { recursive: true, force: true });
+    copied += 1;
+  }
+
+  await writeManifest(outputPath, {
+    managedFolders: [...expectedFolders],
+    manualFolders: manifest.manualFolders
+  });
+
+  return { outputPath, copied, removed: foldersToRemove.length };
+}
+
+export function getGlobalOutputPath(): string {
+  return resolveGlobalOutputPath();
 }

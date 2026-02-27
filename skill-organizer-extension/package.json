@@ -81,7 +81,8 @@
       {
         "command": "skillOrganizer.refresh",
         "title": "Refresh Sources",
-        "category": "Skill Organizer"
+        "category": "Skill Organizer",
+        "icon": "$(refresh)"
       },
       {
         "command": "skillOrganizer.toggleSkill",
@@ -137,14 +138,10 @@
         }
       },
       {
-        "command": "skillOrganizer.applyGlobalProfile",
-        "title": "Apply Global Defaults",
-        "category": "Skill Organizer"
-      },
-      {
         "command": "skillOrganizer.syncWorkspaceSkills",
         "title": "Resync Managed Skills",
-        "category": "Skill Organizer"
+        "category": "Skill Organizer",
+        "icon": "$(sync)"
       },
       {
         "command": "skillOrganizer.markManual",
@@ -211,6 +208,11 @@
           "default": ".github/skills",
           "description": "Workspace-relative path where enabled skills are copied as local skills."
         },
+        "skillOrganizer.globalDestinationPath": {
+          "type": "string",
+          "default": "~/.agents/skills",
+          "description": "Path where global default skills are copied as user-level (personal) skills, available in all workspaces. Supports ~ for home directory."
+        },
         "skillOrganizer.materializationMode": {
           "type": "string",
           "enum": [
@@ -244,14 +246,9 @@
           "group": "2_sources@2"
         },
         {
-          "command": "skillOrganizer.applyGlobalProfile",
-          "when": "view == skillOrganizer.skills",
-          "group": "3_workspace@1"
-        },
-        {
           "command": "skillOrganizer.syncWorkspaceSkills",
           "when": "view == skillOrganizer.skills",
-          "group": "3_workspace@2"
+          "group": "3_workspace@1"
         },
         {
           "command": "skillOrganizer.extendAgents",
@@ -261,8 +258,23 @@
       ],
       "view/item/context": [
         {
+          "command": "skillOrganizer.refresh",
+          "when": "view == skillOrganizer.skills && viewItem == sectionItem_sources",
+          "group": "inline"
+        },
+        {
+          "command": "skillOrganizer.refresh",
+          "when": "view == skillOrganizer.skills && viewItem == sourceItem",
+          "group": "inline@1"
+        },
+        {
           "command": "skillOrganizer.removeSource",
           "when": "view == skillOrganizer.skills && viewItem == sourceItem",
+          "group": "inline@2"
+        },
+        {
+          "command": "skillOrganizer.syncWorkspaceSkills",
+          "when": "view == skillOrganizer.skills && viewItem == sectionItem_materialized",
           "group": "inline"
         },
         {
@@ -318,7 +330,7 @@
         {
           "command": "skillOrganizer.updateManagedSkill",
           "when": "view == skillOrganizer.skills && viewItem == materializedManagedSkillItem",
-          "group": "inline"
+          "group": "inline@1"
         },
         {
           "command": "skillOrganizer.markManual",
@@ -333,7 +345,7 @@
         {
           "command": "skillOrganizer.uninstallSkill",
           "when": "view == skillOrganizer.skills && (viewItem == materializedManagedSkillItem || viewItem == materializedManualSkillItem)",
-          "group": "inline"
+          "group": "inline@2"
         },
         {
           "command": "skillOrganizer.submitSkillPR",
@@ -359,7 +371,7 @@
       },
       {
         "view": "skillOrganizer.skills",
-        "contents": "Use the ··· menu for source refresh, global defaults, and skill sync."
+        "contents": "Use the ··· menu for source refresh, global skill sync, and workspace sync."
       }
     ]
   },

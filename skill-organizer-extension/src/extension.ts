@@ -2,10 +2,12 @@ import * as vscode from "vscode";
 import {
   assertCanInstallMaterializedSkill,
   getLocalConflictFolderNames,
+  getGlobalOutputPath,
   getSkillTargetFolderName,
   listMaterializedSkills,
   markSkillAsManaged,
   markSkillAsManual,
+  materializeSkillsToGlobalFolder,
   materializeSkillsToWorkspace,
   reconcileUntrackedSkills,
   uninstallMaterializedSkill,
@@ -361,12 +363,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             if (selected === "Remove from Workspace + Global Defaults") {
               const updatedGlobal = stateStore.getGlobalDefaults().filter((id) => id !== payload.skillId);
               await stateStore.saveGlobalDefaults(updatedGlobal);
+              await syncGlobalDefaultSkills(sourceManager, stateStore);
             }
 
             await syncMaterializedEnabledSkills(sourceManager, stateStore);
           } else {
             const updatedGlobal = stateStore.getGlobalDefaults().filter((id) => id !== payload.skillId);
             await stateStore.saveGlobalDefaults(updatedGlobal);
+            await syncGlobalDefaultSkills(sourceManager, stateStore);
           }
 
           treeProvider.refresh();
@@ -548,6 +552,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         current.add(resolvedSkillId);
 
         await stateStore.saveGlobalDefaults([...current]);
+        await syncGlobalDefaultSkills(sourceManager, stateStore);
         treeProvider.refresh();
       });
     }
@@ -566,6 +571,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         current.delete(resolvedSkillId);
 
         await stateStore.saveGlobalDefaults([...current]);
+        await syncGlobalDefaultSkills(sourceManager, stateStore);
         treeProvider.refresh();
       });
     }
@@ -625,37 +631,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const current = new Set(stateStore.getGlobalDefaults());
         current.delete(resolvedSkillId);
         await stateStore.saveGlobalDefaults([...current]);
+        await syncGlobalDefaultSkills(sourceManager, stateStore);
         treeProvider.refresh();
       });
     }
   );
-
-  const applyGlobalProfile = vscode.commands.registerCommand("skillOrganizer.applyGlobalProfile", async () => {
-    await runCommand(async () => {
-      const globalDefaults = stateStore.getGlobalDefaults();
-      if (globalDefaults.length === 0) {
-        vscode.window.showInformationMessage("No global default skills are configured yet.");
-        return;
-      }
-
-      const frozenSkills = new Set(stateStore.getFrozenSkills());
-      const eligibleGlobalDefaults = globalDefaults.filter((skillId) => !frozenSkills.has(skillId));
-      const skippedFrozen = globalDefaults.length - eligibleGlobalDefaults.length;
-
-      const workspaceEnabled = new Set(stateStore.getWorkspaceEnabled());
-      for (const skillId of eligibleGlobalDefaults) {
-        workspaceEnabled.add(skillId);
-      }
-
-      await stateStore.saveWorkspaceEnabled([...workspaceEnabled]);
-      await syncMaterializedEnabledSkills(sourceManager, stateStore);
-      treeProvider.refresh();
-      const skippedMessage = skippedFrozen > 0 ? ` Skipped ${skippedFrozen} frozen skill(s).` : "";
-      vscode.window.showInformationMessage(
-        `Applied ${eligibleGlobalDefaults.length} global default skill(s) to this workspace.${skippedMessage}`
-      );
-    });
-  });
 
   const syncWorkspaceSkills = vscode.commands.registerCommand("skillOrganizer.syncWorkspaceSkills", async () => {
     const confirm = await confirmSyncWorkspaceSkills(stateStore);
@@ -690,6 +670,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.window.showInformationMessage(
         `Synced ${result.copied} local skill(s) to ${result.outputPath}. Removed ${result.removed} stale folder(s).${skippedMessage}`
       );
+
+      // Also re-sync global skills to user profile
+      await syncGlobalDefaultSkills(sourceManager, stateStore);
+
       treeProvider.refresh();
     });
   });
@@ -1145,7 +1129,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     unsetGlobalDefault,
     removeFromWorkspace,
     removeFromGlobalDefaults,
-    applyGlobalProfile,
     syncWorkspaceSkills,
     freezeSkill,
     unfreezeSkill,
@@ -1336,6 +1319,26 @@ async function syncMaterializedEnabledSkills(sourceManager: SourceManager, state
   }
 
   await materializeSkillsToWorkspace(skills);
+}
+
+async function syncGlobalDefaultSkills(
+  sourceManager: SourceManager,
+  stateStore: StateStore
+): Promise<{ outputPath: string; copied: number; removed: number } | undefined> {
+  const globalIds = stateStore.getGlobalDefaults();
+
+  if (globalIds.length === 0) {
+    return materializeSkillsToGlobalFolder([]);
+  }
+
+  const resolvedSkills = await Promise.all(globalIds.map((id) => sourceManager.getSkillById(id)));
+  const skills = resolvedSkills.filter((skill): skill is NonNullable<typeof skill> => Boolean(skill));
+
+  if (skills.length === 0) {
+    return undefined;
+  }
+
+  return materializeSkillsToGlobalFolder(skills);
 }
 
 async function resolveMaterializedSkillName(

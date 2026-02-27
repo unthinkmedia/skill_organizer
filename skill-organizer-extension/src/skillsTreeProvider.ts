@@ -27,7 +27,7 @@ export class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNod
         new SectionTreeNode("Sources", "Configured repositories", "repo", "sources"),
         new SectionTreeNode("Local Skills", "Found in destination path", "folder-library", "materialized"),
         new SectionTreeNode("Workspace Enabled", "Active in this workspace", "checklist", "workspace"),
-        new SectionTreeNode("Global Defaults", "Applied by global profile", "star-full", "global")
+        new SectionTreeNode("Global Skills", "Synced to user profile", "star-full", "global")
       ];
     }
 
@@ -77,7 +77,7 @@ export class SkillsTreeProvider implements vscode.TreeDataProvider<SkillsTreeNod
           .map(({ skillId, skill }) => toGlobalSkillNode(skillId, skill))
           .filter((node): node is SkillTreeNode | MissingSkillTreeNode => Boolean(node));
 
-        return nodes.length > 0 ? nodes : [new MessageTreeNode("No global defaults", "Mark skills as global defaults", "star-empty")];
+        return nodes.length > 0 ? nodes : [new MessageTreeNode("No global skills", "Mark skills as global to sync to user profile", "star-empty")];
       }
 
       if (element.sectionType === "materialized") {
@@ -135,7 +135,7 @@ export class SectionTreeNode extends SkillsTreeNode {
     super(label, vscode.TreeItemCollapsibleState.Expanded);
     this.description = description;
     this.iconPath = new vscode.ThemeIcon(iconName);
-    this.contextValue = "sectionItem";
+    this.contextValue = `sectionItem_${sectionType}`;
   }
 }
 
