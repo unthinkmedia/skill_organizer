@@ -21,6 +21,8 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 - GitHub `tree` URL support (for example: `.../tree/main/tools/skills`).
 - Direct import from `skills.sh` URLs.
 - Skill discovery from common folder patterns.
+- **LLM-powered skill search** — describe what you need in natural language and let a language model find the best match from your catalog. Falls back to fuzzy substring matching when LM is unavailable.
+- **Submit Skill as PR** — contribute a local skill back to any GitHub repository directly from the extension. Supports submitting to existing sources, arbitrary repos, or creating a new repo on the fly. Forks automatically when you lack push access.
 - Workspace-level enable and disable controls.
 - Global default toggle per skill.
 - Manual vs managed materialized skill tracking.
@@ -41,6 +43,14 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 5. Run `Skill Organizer: Apply Sync (Overwrite Managed Skills)` to materialize into `.github/skills`.
 6. Optional: Use `Detach from Source` in the Materialized section to protect a copied skill from updates.
 
+### Searching Skills
+
+Run `Skill Organizer: Search Skills` and describe what you need (e.g. "help me deploy" or "set up auth"). When a language model is available, the search uses LLM-powered semantic matching to surface the most relevant skills. Otherwise it falls back to fast fuzzy matching. Select a result to toggle it on or off.
+
+### Contributing a Skill via PR
+
+Run `Skill Organizer: Submit Skill as PR` (or use the context menu on a materialized skill) to open a pull request that adds the skill to a GitHub repository. You can target an existing source, enter any GitHub URL, or create a brand-new repo. If you don't have push access, a fork is created automatically.
+
 ## Commands
 
 - `Skill Organizer: Add Source`
@@ -54,6 +64,8 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 - `Skill Organizer: Reconnect to Source`
 - `Skill Organizer: Update Managed Skill`
 - `Skill Organizer: Uninstall Materialized Skill`
+- `Skill Organizer: Search Skills`
+- `Skill Organizer: Submit Skill as PR`
 
 ## Manual vs Managed Skills
 
