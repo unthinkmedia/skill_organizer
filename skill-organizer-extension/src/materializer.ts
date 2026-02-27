@@ -344,6 +344,71 @@ async function writeManagedFolders(outputPath: string, folders: string[]): Promi
   });
 }
 
+export async function reconcileUntrackedSkills(): Promise<number> {
+  let workspaceFolder: vscode.WorkspaceFolder;
+  try {
+    workspaceFolder = getPrimaryWorkspaceFolder();
+  } catch {
+    return 0;
+  }
+
+  const outputPath = getOutputPath(workspaceFolder);
+
+  let dirEntries: string[];
+  try {
+    dirEntries = await fs.readdir(outputPath);
+  } catch {
+    return 0;
+  }
+
+  const manifest = await loadManifest(outputPath);
+  const onDisk = new Set(dirEntries);
+  let changed = 0;
+
+  // Prune manifest entries whose folders no longer exist on disk.
+  const prunedManual = manifest.manualFolders.filter((f) => onDisk.has(f));
+  const prunedManaged = manifest.managedFolders.filter((f) => onDisk.has(f));
+  changed += manifest.manualFolders.length - prunedManual.length;
+  changed += manifest.managedFolders.length - prunedManaged.length;
+  manifest.manualFolders = prunedManual;
+  manifest.managedFolders = prunedManaged;
+
+  // Register untracked skill folders (those with SKILL.md) as manual.
+  const tracked = new Set([...manifest.managedFolders, ...manifest.manualFolders]);
+
+  for (const name of dirEntries) {
+    if (tracked.has(name)) {
+      continue;
+    }
+
+    const fullPath = path.join(outputPath, name);
+    try {
+      const stat = await fs.stat(fullPath);
+      if (!stat.isDirectory()) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+
+    const skillMd = path.join(fullPath, "SKILL.md");
+    try {
+      await fs.access(skillMd);
+    } catch {
+      continue;
+    }
+
+    manifest.manualFolders.push(name);
+    changed++;
+  }
+
+  if (changed > 0) {
+    await writeManifest(outputPath, manifest);
+  }
+
+  return changed;
+}
+
 async function writeManifest(outputPath: string, manifest: SkillManifest): Promise<void> {
   const manifestPath = path.join(outputPath, MANIFEST_FILE);
   const payload = JSON.stringify(

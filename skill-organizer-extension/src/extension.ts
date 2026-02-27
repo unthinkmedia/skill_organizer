@@ -7,6 +7,7 @@ import {
   markSkillAsManaged,
   markSkillAsManual,
   materializeSkillsToWorkspace,
+  reconcileUntrackedSkills,
   uninstallMaterializedSkill,
   updateManagedMaterializedSkill
 } from "./materializer";
@@ -117,7 +118,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (refreshTimer) {
       clearTimeout(refreshTimer);
     }
-    refreshTimer = setTimeout(() => {
+    refreshTimer = setTimeout(async () => {
+      await reconcileUntrackedSkills();
       treeProvider.refresh();
     }, 500);
   };
@@ -132,7 +134,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     const config = vscode.workspace.getConfiguration("skillOrganizer");
     const destinationPath = config.get<string>("destinationPath", ".github/skills");
-    const pattern = new vscode.RelativePattern(workspaceFolder, `${destinationPath}/**/SKILL.md`);
+    const pattern = new vscode.RelativePattern(workspaceFolder, `${destinationPath}/**`);
     const watcher = vscode.workspace.createFileSystemWatcher(pattern);
     watcher.onDidCreate(debouncedRefresh);
     watcher.onDidDelete(debouncedRefresh);
@@ -144,6 +146,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (skillsWatcher) {
     context.subscriptions.push(skillsWatcher);
   }
+
+  // Reconcile untracked skills at activation so pre-existing skills are detected
+  reconcileUntrackedSkills().then((changed) => {
+    if (changed > 0) {
+      treeProvider.refresh();
+    }
+  });
+
+  // Re-reconcile when the tree view becomes visible to catch missed events
+  treeView.onDidChangeVisibility(async (e) => {
+    if (e.visible) {
+      const changed = await reconcileUntrackedSkills();
+      if (changed > 0) {
+        treeProvider.refresh();
+      }
+    }
+  });
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
