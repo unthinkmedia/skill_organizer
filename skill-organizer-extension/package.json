@@ -406,7 +406,7 @@
     ]
   },
   "scripts": {
-    "sync:readme": "node -e \"const fs=require('fs');let s=fs.readFileSync('../README.md','utf8');s=s.replaceAll('./skill-organizer-extension/media/','./media/');fs.writeFileSync('./README.md',s);\"",
+    "sync:readme": "node -e \"const fs=require('fs');let s=fs.readFileSync('../README.md','utf8');s=s.replaceAll('./skill-organizer-extension/media/','https://raw.githubusercontent.com/unthinkmedia/skill_organizer/main/skill-organizer-extension/media/');fs.writeFileSync('./README.md',s);\"",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run sync:readme && npm run compile",
