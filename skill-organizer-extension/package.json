@@ -18,14 +18,23 @@
     "extension",
     "skills",
     "github",
-    "copilot"
+    "copilot",
+    "ai",
+    "instructions",
+    "custom-instructions",
+    "agents"
   ],
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
+    "AI",
     "Other"
   ],
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "icon": "media/icon-128.png",
   "main": "./dist/extension.js",
   "contributes": {
@@ -79,11 +88,7 @@
       {
         "command": "skillOrganizer.removeSource",
         "title": "Remove Source",
-        "category": "Skill Organizer",
-        "icon": {
-          "light": "media/trash-light.svg",
-          "dark": "media/trash-dark.svg"
-        }
+        "category": "Skill Organizer"
       },
       {
         "command": "skillOrganizer.refresh",
@@ -111,20 +116,12 @@
       {
         "command": "skillOrganizer.removeFromWorkspace",
         "title": "Remove from Workspace Enabled",
-        "category": "Skill Organizer",
-        "icon": {
-          "light": "media/trash-light.svg",
-          "dark": "media/trash-dark.svg"
-        }
+        "category": "Skill Organizer"
       },
       {
         "command": "skillOrganizer.removeFromGlobalDefaults",
         "title": "Remove from Global Defaults",
-        "category": "Skill Organizer",
-        "icon": {
-          "light": "media/trash-light.svg",
-          "dark": "media/trash-dark.svg"
-        }
+        "category": "Skill Organizer"
       },
       {
         "command": "skillOrganizer.setGlobalDefault",
@@ -163,11 +160,7 @@
       {
         "command": "skillOrganizer.uninstallSkill",
         "title": "Remove Local Skill",
-        "category": "Skill Organizer",
-        "icon": {
-          "light": "media/trash-light.svg",
-          "dark": "media/trash-dark.svg"
-        }
+        "category": "Skill Organizer"
       },
       {
         "command": "skillOrganizer.updateManagedSkill",
@@ -277,7 +270,7 @@
         {
           "command": "skillOrganizer.removeSource",
           "when": "view == skillOrganizer.sources && viewItem == sourceItem",
-          "group": "inline@2"
+          "group": "3_danger@1"
         },
         {
           "command": "skillOrganizer.syncWorkspaceSkills",
@@ -310,19 +303,14 @@
           "group": "navigation"
         },
         {
-          "command": "skillOrganizer.removeFromWorkspace",
-          "when": "view == skillOrganizer.sources && viewItem == workspaceSkillItem",
-          "group": "inline"
-        },
-        {
           "command": "skillOrganizer.setGlobalDefault",
           "when": "view == skillOrganizer.sources && viewItem == workspaceSkillItem",
           "group": "inline"
         },
         {
           "command": "skillOrganizer.removeFromWorkspace",
-          "when": "view == skillOrganizer.sources && viewItem == workspaceSkillItemGlobal",
-          "group": "inline"
+          "when": "view == skillOrganizer.sources && viewItem == workspaceSkillItem",
+          "group": "3_danger@1"
         },
         {
           "command": "skillOrganizer.unsetGlobalDefault",
@@ -330,9 +318,14 @@
           "group": "inline"
         },
         {
+          "command": "skillOrganizer.removeFromWorkspace",
+          "when": "view == skillOrganizer.sources && viewItem == workspaceSkillItemGlobal",
+          "group": "3_danger@1"
+        },
+        {
           "command": "skillOrganizer.removeFromGlobalDefaults",
           "when": "view == skillOrganizer.enabledGlobally && viewItem == globalSkillItem",
-          "group": "inline"
+          "group": "3_danger@1"
         },
         {
           "command": "skillOrganizer.explainMissingSkill",
