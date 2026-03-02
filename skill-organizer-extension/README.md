@@ -2,7 +2,7 @@
 
 Bring your best AI skills into every workspace without repetitive copy/paste.
 
-Import reusable skills from GitHub and `skills.sh`, choose what belongs in the current workspace, and keep materialized files in sync.
+Import reusable skills from GitHub and `skills.sh`, choose what belongs in the current workspace, and keep local copied files in sync.
 
 ![Skill Organizer preview](./media/marketplace-preview.png)
 
@@ -11,7 +11,7 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 - Centralize reusable skills from multiple sources.
 - Enable only what you need per workspace.
 - Keep a global default profile for your go-to skills.
-- Materialize selected skills into `.github/skills` automatically.
+- Copy selected skills into `.github/skills` automatically.
 - Manage everything from a single, structured tree view.
 
 ## Key Features
@@ -25,12 +25,12 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 - **Submit Skill as PR** — contribute a local skill back to any GitHub repository directly from the extension. Supports submitting to existing sources, arbitrary repos, or creating a new repo on the fly. Forks automatically when you lack push access.
 - Workspace-level enable and disable controls.
 - Global default toggle per skill.
-- Manual vs managed materialized skill tracking.
+- Manual vs managed local skill tracking.
 - Apply global profile into the active workspace.
 - Sync selected workspace skills into destination files.
 - Organized sections in the Skills view:
   - Sources
-  - Materialized
+  - Local Skills
   - Workspace Enabled
   - Global Defaults
 
@@ -40,8 +40,8 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 2. Run `Skill Organizer: Add Source`.
 3. Choose GitHub or `skills.sh`, then provide the source URL.
 4. Enable the skills you want.
-5. Run `Skill Organizer: Apply Sync (Overwrite Managed Skills)` to materialize into `.github/skills`.
-6. Optional: Use `Detach from Source` in the Materialized section to protect a copied skill from updates.
+5. Run `Skill Organizer: Apply Sync (Overwrite Managed Skills)` to copy into `.github/skills`.
+6. Optional: Use `Detach from Source` in the Local Skills section to protect a copied skill from updates.
 
 ### Searching Skills
 
@@ -49,7 +49,7 @@ Run `Skill Organizer: Search Skills` and describe what you need (e.g. "help me d
 
 ### Contributing a Skill via PR
 
-Run `Skill Organizer: Submit Skill as PR` (or use the context menu on a materialized skill) to open a pull request that adds the skill to a GitHub repository. You can target an existing source, enter any GitHub URL, or create a brand-new repo. If you don't have push access, a fork is created automatically.
+Run `Skill Organizer: Submit Skill as PR` (or use the context menu on a local skill) to open a pull request that adds the skill to a GitHub repository. You can target an existing source, enter any GitHub URL, or create a brand-new repo. If you don't have push access, a fork is created automatically.
 
 ## Commands
 
@@ -63,13 +63,13 @@ Run `Skill Organizer: Submit Skill as PR` (or use the context menu on a material
 - `Skill Organizer: Detach from Source`
 - `Skill Organizer: Reconnect to Source`
 - `Skill Organizer: Update Managed Skill`
-- `Skill Organizer: Uninstall Materialized Skill`
+- `Skill Organizer: Remove Local Skill`
 - `Skill Organizer: Search Skills`
 - `Skill Organizer: Submit Skill as PR`
 
-## Manual vs Managed Skills
+## Manual vs Managed Local Skills
 
-Skill Organizer tracks materialized folders in `.skill-organizer.manifest.json`:
+Skill Organizer tracks copied local folders in `.skill-organizer.manifest.json`:
 
 ```json
 {
@@ -86,7 +86,7 @@ Skill Organizer tracks materialized folders in `.skill-organizer.manifest.json`:
 
 - Sync skips manual folders (they remain untouched).
 - `Update Managed Skill` is only available for managed entries.
-- `Uninstall Materialized Skill` requires force confirmation for manual entries.
+- `Remove Local Skill` requires force confirmation for manual entries.
 - `Detach from Source` and `Reconnect to Source` move skills between manifest arrays.
 
 Most management actions are also available from the `...` title menu in the Skills view.
@@ -94,10 +94,10 @@ Most management actions are also available from the `...` title menu in the Skil
 ## Configuration
 
 - `skillOrganizer.destinationPath`
-  - Workspace-relative destination for materialized skills.
+  - Workspace-relative destination for copied local skills.
   - Default: `.github/skills`
 - `skillOrganizer.materializationMode`
-  - Materialization strategy.
+  - Copy strategy.
   - Current supported value: `copy`
 
 ## Repository

@@ -2,7 +2,7 @@
   "name": "skill-organizer-extension",
   "displayName": "Skill Organizer",
   "description": "Import and manage reusable AI skills from GitHub repos, skills.sh URLs, and local folders.",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "publisher": "unthinkmedia",
   "license": "UNLICENSED",
   "repository": {
@@ -219,7 +219,7 @@
             "copy"
           ],
           "default": "copy",
-          "description": "How skills are copied into local workspace folders. V1 supports copy mode only."
+          "description": "How skills are copied into local workspace folders. Currently supports copy mode only."
         }
       }
     },

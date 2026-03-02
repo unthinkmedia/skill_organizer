@@ -2,14 +2,14 @@
 
 Bring your best AI skills into every workspace without repetitive copy/paste.
 
-Import reusable skills from GitHub and `skills.sh`, choose what belongs in the current workspace, and keep materialized files in sync.
+Import reusable skills from GitHub and `skills.sh`, choose what belongs in the current workspace, and keep local copied files in sync.
 
 ## Why Skill Organizer
 
 - Centralize reusable skills from multiple sources.
 - Enable only what you need per workspace.
 - Keep a global default profile for your go-to skills.
-- Materialize selected skills into `.github/skills` automatically.
+- Copy selected skills into `.github/skills` automatically.
 - Manage everything from a single, structured tree view.
 
 ## Key Features
@@ -34,7 +34,7 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 2. Run `Skill Organizer: Add Source`.
 3. Choose GitHub or `skills.sh`, then provide the source URL.
 4. Enable the skills you want.
-5. Run `Skill Organizer: Sync Workspace Skills` to materialize into `.github/skills`.
+5. Run `Skill Organizer: Sync Workspace Skills` to copy into `.github/skills`.
 
 ## Commands
 
@@ -51,10 +51,10 @@ Most management actions are also available from the `...` title menu in the Skil
 ## Configuration
 
 - `skillOrganizer.destinationPath`
-	- Workspace-relative destination for materialized skills.
+	- Workspace-relative destination for copied local skills.
 	- Default: `.github/skills`
 - `skillOrganizer.materializationMode`
-	- Materialization strategy.
+	- Copy strategy.
 	- Current supported value: `copy`
 
 ## Repository
