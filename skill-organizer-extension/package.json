@@ -285,19 +285,24 @@
           "group": "inline"
         },
         {
-          "command": "skillOrganizer.toggleSkill",
+          "command": "skillOrganizer.setGlobalDefault",
           "when": "view == skillOrganizer.sources && viewItem == sourceSkillItem",
+          "group": "inline"
+        },
+        {
+          "command": "skillOrganizer.unsetGlobalDefault",
+          "when": "view == skillOrganizer.sources && viewItem == sourceSkillItemGlobal",
+          "group": "inline"
+        },
+        {
+          "command": "skillOrganizer.unfreezeSkill",
+          "when": "view == skillOrganizer.sources && viewItem == sourceSkillItemFrozen",
           "group": "inline"
         },
         {
           "command": "skillOrganizer.freezeSkill",
           "when": "view == skillOrganizer.sources && viewItem == sourceSkillItem",
           "group": "navigation"
-        },
-        {
-          "command": "skillOrganizer.unfreezeSkill",
-          "when": "view == skillOrganizer.sources && viewItem == sourceSkillItemFrozen",
-          "group": "inline"
         },
         {
           "command": "skillOrganizer.setGlobalDefault",
@@ -338,6 +343,31 @@
           "command": "skillOrganizer.updateManagedSkill",
           "when": "view == skillOrganizer.activeSkills && viewItem == materializedManagedSkillItem",
           "group": "inline@1"
+        },
+        {
+          "command": "skillOrganizer.updateManagedSkill",
+          "when": "view == skillOrganizer.activeSkills && viewItem == materializedManagedSkillItemGlobal",
+          "group": "inline@1"
+        },
+        {
+          "command": "skillOrganizer.setGlobalDefault",
+          "when": "view == skillOrganizer.activeSkills && viewItem == materializedManagedSkillItem",
+          "group": "inline@2"
+        },
+        {
+          "command": "skillOrganizer.unsetGlobalDefault",
+          "when": "view == skillOrganizer.activeSkills && viewItem == materializedManagedSkillItemGlobal",
+          "group": "inline@2"
+        },
+        {
+          "command": "skillOrganizer.setGlobalDefault",
+          "when": "view == skillOrganizer.activeSkills && viewItem == materializedManualSkillItemReconnectable",
+          "group": "inline@2"
+        },
+        {
+          "command": "skillOrganizer.unsetGlobalDefault",
+          "when": "view == skillOrganizer.activeSkills && viewItem == materializedManualSkillItemReconnectableGlobal",
+          "group": "inline@2"
         },
         {
           "command": "skillOrganizer.markManual",

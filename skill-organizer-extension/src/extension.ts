@@ -689,7 +689,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const setGlobalDefault = vscode.commands.registerCommand(
     "skillOrganizer.setGlobalDefault",
-    async (skillArg?: string | SkillTreeNode) => {
+    async (skillArg?: string | SkillTreeNode | MaterializedSkillTreeNode) => {
       const resolvedSkillId = await resolveSkillIdFromTreeArgument(skillArg, sourceManager);
       if (!resolvedSkillId) {
         return;
@@ -708,7 +708,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const unsetGlobalDefault = vscode.commands.registerCommand(
     "skillOrganizer.unsetGlobalDefault",
-    async (skillArg?: string | SkillTreeNode) => {
+    async (skillArg?: string | SkillTreeNode | MaterializedSkillTreeNode) => {
       const resolvedSkillId = await resolveSkillIdFromTreeArgument(skillArg, sourceManager);
       if (!resolvedSkillId) {
         return;
