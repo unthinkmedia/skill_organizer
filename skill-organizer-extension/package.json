@@ -2,7 +2,7 @@
   "name": "skill-organizer-extension",
   "displayName": "Skill Organizer",
   "description": "Import and manage reusable AI skills from GitHub repos, skills.sh URLs, and local folders.",
-  "version": "0.0.15",
+  "version": "0.0.16",
   "publisher": "unthinkmedia",
   "license": "UNLICENSED",
   "repository": {
@@ -51,7 +51,7 @@
       "skillOrganizer": [
         {
           "id": "skillOrganizer.sources",
-          "name": "Skills"
+          "name": "External Sources"
         },
         {
           "id": "skillOrganizer.activeSkills",
