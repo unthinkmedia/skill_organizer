@@ -80,11 +80,74 @@ export class SourceManager {
 
   async refreshAllSources(): Promise<void> {
     const sources = this.stateStore.getSources();
+    const updatedSources: SkillSource[] = [];
+    const failures: string[] = [];
+    let didChangeSources = false;
+
     for (const source of sources) {
-      if (source.type === "gitRepo") {
-        await this.refreshSourceClone(source);
+      if (source.type !== "gitRepo") {
+        updatedSources.push(source);
+        continue;
       }
+
+      let normalizedSource = this.normalizeGitSource(source);
+      if (!this.areGitSourceMetadataEqual(source, normalizedSource)) {
+        didChangeSources = true;
+      }
+
+      try {
+        await this.refreshSourceClone(normalizedSource);
+        normalizedSource = {
+          ...normalizedSource,
+          lastSyncAt: new Date().toISOString()
+        };
+
+        if (normalizedSource.lastSyncAt !== source.lastSyncAt) {
+          didChangeSources = true;
+        }
+      } catch (error) {
+        const label = this.getSourceDisplayLabel(source.uri);
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push(`${label}: ${message}`);
+      }
+
+      updatedSources.push(normalizedSource);
     }
+
+    if (didChangeSources) {
+      await this.stateStore.saveSources(updatedSources);
+    }
+
+    if (failures.length > 0) {
+      const suffix = failures.length > 3 ? ` (+${failures.length - 3} more)` : "";
+      const preview = failures.slice(0, 3).join("; ");
+      throw new Error(`Failed to refresh ${failures.length} source(s): ${preview}${suffix}`);
+    }
+  }
+
+  async refreshSource(sourceId: string): Promise<SkillSource> {
+    const sources = this.stateStore.getSources();
+    const index = sources.findIndex((source) => source.id === sourceId);
+    if (index < 0) {
+      throw new Error("Source not found.");
+    }
+
+    const source = sources[index];
+    if (source.type !== "gitRepo") {
+      return source;
+    }
+
+    const normalizedSource = this.normalizeGitSource(source);
+    await this.refreshSourceClone(normalizedSource);
+
+    const updatedSource: SkillSource = {
+      ...normalizedSource,
+      lastSyncAt: new Date().toISOString()
+    };
+
+    sources[index] = updatedSource;
+    await this.stateStore.saveSources(sources);
+    return updatedSource;
   }
 
   async chooseGitHubAccount(): Promise<string> {
@@ -364,21 +427,52 @@ export class SourceManager {
       return source;
     }
 
-    if (source.canonicalRepoUri || source.branch || source.skillsRootPath) {
-      return source;
-    }
-
     try {
       const parsed = this.parseGitHubSourceInput(source.uri);
       return {
         ...source,
+        // Keep legacy IDs stable, but always repair canonical metadata from the URI.
         canonicalRepoUri: parsed.canonicalRepoUri,
-        branch: parsed.branch,
-        skillsRootPath: parsed.skillsRootPath
+        branch: parsed.branch ?? source.branch,
+        skillsRootPath: parsed.skillsRootPath ?? source.skillsRootPath
       };
     } catch {
       return source;
     }
+  }
+
+  private areGitSourceMetadataEqual(left: SkillSource, right: SkillSource): boolean {
+    return (
+      left.id === right.id &&
+      left.type === right.type &&
+      left.uri === right.uri &&
+      left.canonicalRepoUri === right.canonicalRepoUri &&
+      left.branch === right.branch &&
+      left.skillsRootPath === right.skillsRootPath &&
+      left.authMode === right.authMode &&
+      left.lastSyncAt === right.lastSyncAt
+    );
+  }
+
+  private getSourceDisplayLabel(uri: string): string {
+    try {
+      const parsed = new URL(uri);
+      if (parsed.hostname === "github.com") {
+        const parts = parsed.pathname.split("/").filter(Boolean);
+        if (parts.length >= 2) {
+          return `${parts[0]}/${parts[1].replace(/\.git$/i, "")}`;
+        }
+      }
+    } catch {
+      // Non-URL form (for example SSH), fall back to raw value.
+    }
+
+    const sshMatch = uri.match(/^git@github\.com:([\w.-]+)\/([\w.-]+)(?:\.git)?$/i);
+    if (sshMatch) {
+      return `${sshMatch[1]}/${sshMatch[2]}`;
+    }
+
+    return uri;
   }
 
   private parseGitHubSourceInput(repoUrl: string): { canonicalRepoUri: string; branch?: string; skillsRootPath?: string } {

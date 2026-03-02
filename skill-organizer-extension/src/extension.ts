@@ -14,8 +14,8 @@ import {
   updateManagedMaterializedSkill
 } from "./materializer";
 import { createGitHubRepo, getGitHubUsername, listGitHubUserOrgs, parseGitHubOwnerRepo, submitSkillPR } from "./githubApi";
-import { MaterializedSkillTreeNode, MissingSkillTreeNode, SkillTreeNode, SkillsTreeProvider, SourceTreeNode } from "./skillsTreeProvider";
-import { searchSkills } from "./skillSearch";
+import { MaterializedSkillTreeNode, MissingSkillTreeNode, SkillTreeNode, SkillsTreeProvider, SourceBadgeDecorationProvider, SourceTreeNode } from "./skillsTreeProvider";
+import { enrichSkillsWithMetadata, searchSkills } from "./skillSearch";
 import { SourceManager } from "./sourceManager";
 import { StateStore } from "./stateStore";
 import { SkillItem, SkillSource } from "./types";
@@ -97,16 +97,38 @@ Constraints:
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const stateStore = new StateStore(context);
   const sourceManager = new SourceManager(context, stateStore);
-  const treeProvider = new SkillsTreeProvider(sourceManager, stateStore);
+  const sourcesTreeProvider = new SkillsTreeProvider(sourceManager, stateStore, "sources");
+  const activeTreeProvider = new SkillsTreeProvider(sourceManager, stateStore, "active");
+  const globalTreeProvider = new SkillsTreeProvider(sourceManager, stateStore, "global");
+  const sourceBadgeProvider = new SourceBadgeDecorationProvider();
+
+  const refreshAllTreeViews = () => {
+    sourcesTreeProvider.refresh();
+    activeTreeProvider.refresh();
+    globalTreeProvider.refresh();
+    sourceBadgeProvider.refresh();
+  };
 
   await ensureDefaultSourceLoaded(sourceManager, stateStore);
 
-  const treeView = vscode.window.createTreeView("skillOrganizer.skills", {
-    treeDataProvider: treeProvider,
+  const sourcesTreeView = vscode.window.createTreeView("skillOrganizer.sources", {
+    treeDataProvider: sourcesTreeProvider,
     showCollapseAll: false
   });
 
-  treeView.onDidChangeCheckboxState(async (e) => {
+  const activeTreeView = vscode.window.createTreeView("skillOrganizer.activeSkills", {
+    treeDataProvider: activeTreeProvider,
+    showCollapseAll: false
+  });
+
+  const globalTreeView = vscode.window.createTreeView("skillOrganizer.enabledGlobally", {
+    treeDataProvider: globalTreeProvider,
+    showCollapseAll: false
+  });
+
+  context.subscriptions.push(vscode.window.registerFileDecorationProvider(sourceBadgeProvider));
+
+  sourcesTreeView.onDidChangeCheckboxState(async (e) => {
     for (const [item] of e.items) {
       if (item instanceof SkillTreeNode) {
         await vscode.commands.executeCommand("skillOrganizer.toggleSkill", item.skill.id);
@@ -122,7 +144,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     refreshTimer = setTimeout(async () => {
       await reconcileUntrackedSkills();
-      treeProvider.refresh();
+      refreshAllTreeViews();
     }, 500);
   };
 
@@ -152,19 +174,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Reconcile untracked skills at activation so pre-existing skills are detected
   reconcileUntrackedSkills().then((changed) => {
     if (changed > 0) {
-      treeProvider.refresh();
+      refreshAllTreeViews();
     }
   });
 
-  // Re-reconcile when the tree view becomes visible to catch missed events
-  treeView.onDidChangeVisibility(async (e) => {
+  // Re-reconcile when any section view becomes visible to catch missed events
+  const onSectionVisible = async (e: { visible: boolean }) => {
     if (e.visible) {
       const changed = await reconcileUntrackedSkills();
       if (changed > 0) {
-        treeProvider.refresh();
+        refreshAllTreeViews();
       }
     }
-  });
+  };
+
+  sourcesTreeView.onDidChangeVisibility(onSectionVisible);
+  activeTreeView.onDidChangeVisibility(onSectionVisible);
+  globalTreeView.onDidChangeVisibility(onSectionVisible);
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -174,10 +200,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (skillsWatcher) {
           context.subscriptions.push(skillsWatcher);
         }
-        treeProvider.refresh();
+        refreshAllTreeViews();
       }
     })
   );
+
+  context.subscriptions.push(sourcesTreeView, activeTreeView, globalTreeView);
 
   const conflictDecorationProvider = vscode.window.registerFileDecorationProvider({
     provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
@@ -229,7 +257,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await sourceManager.addGitHubSource(repoUrl.trim());
       });
 
-      treeProvider.refresh();
+      refreshAllTreeViews();
       vscode.window.showInformationMessage("GitHub source added.");
     });
   });
@@ -288,7 +316,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       }
 
-      treeProvider.refresh();
+      refreshAllTreeViews();
     });
   });
 
@@ -302,13 +330,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   });
 
-  const refresh = vscode.commands.registerCommand("skillOrganizer.refresh", async () => {
-    await runCommand(async () => {
-      await runWithProgress("Refreshing sources", async () => {
-        await sourceManager.refreshAllSources();
-      });
-      treeProvider.refresh();
+  const refresh = vscode.commands.registerCommand("skillOrganizer.refresh", async (node?: SourceTreeNode) => {
+    let refreshError: unknown;
+    const sourceId = node?.sourceId;
+    const progressTitle = sourceId ? "Refreshing source" : "Refreshing sources";
+
+    await runWithProgress(progressTitle, async () => {
+      try {
+        if (sourceId) {
+          await sourceManager.refreshSource(sourceId);
+        } else {
+          await sourceManager.refreshAllSources();
+        }
+      } catch (error) {
+        refreshError = error;
+      }
     });
+
+    await reconcileUntrackedSkills();
+    refreshAllTreeViews();
+
+    if (refreshError) {
+      const message = refreshError instanceof Error ? refreshError.message : String(refreshError);
+      vscode.window.showErrorMessage(`Skill Organizer: ${message}`);
+    }
   });
 
   const explainMissingSkill = vscode.commands.registerCommand(
@@ -319,7 +364,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      const removeThisSectionLabel = payload.section === "workspace" ? "Remove from Workspace Enabled" : "Remove from Global Defaults";
+      const removeThisSectionLabel = payload.section === "workspace" ? "Remove from Enabled from Sources" : "Remove from Global Defaults";
       const actions = ["Add Source", "Refresh Sources", removeThisSectionLabel];
       if (payload.section === "workspace" && payload.globalDefault) {
         actions.push("Remove from Workspace + Global Defaults");
@@ -373,7 +418,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             await syncGlobalDefaultSkills(sourceManager, stateStore);
           }
 
-          treeProvider.refresh();
+          refreshAllTreeViews();
           vscode.window.showInformationMessage(`Removed stale missing skill reference '${payload.skillId}'.`);
         }
       });
@@ -381,7 +426,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   const removeSource = vscode.commands.registerCommand("skillOrganizer.removeSource", async (node?: SourceTreeNode) => {
-    const sourceId = await resolveSourceId(node?.sourceId, sourceManager);
+    const sourceId = await resolveSourceId(node?.sourceId, sourceManager, "Select a source to delete");
     if (!sourceId) {
       return;
     }
@@ -389,7 +434,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const source = sourceManager.getSources().find((candidate) => candidate.id === sourceId);
     if (!source) {
       vscode.window.showWarningMessage("Source no longer exists.");
-      treeProvider.refresh();
+      refreshAllTreeViews();
       return;
     }
 
@@ -410,10 +455,113 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
 
       await pruneSkillSelectionsForSource(sourceId, stateStore);
-      treeProvider.refresh();
+      refreshAllTreeViews();
       vscode.window.showInformationMessage(`Removed source '${sourceLabel}'.`);
     });
   });
+
+  const openRepository = vscode.commands.registerCommand("skillOrganizer.openRepository", async (node?: SourceTreeNode) => {
+    const sourceId = await resolveSourceId(node?.sourceId, sourceManager, "Select a source to open");
+    if (!sourceId) {
+      return;
+    }
+
+    const source = sourceManager.getSources().find((candidate) => candidate.id === sourceId);
+    if (!source) {
+      vscode.window.showWarningMessage("Source no longer exists.");
+      refreshAllTreeViews();
+      return;
+    }
+
+    const browseUri = getSourceBrowseUri(source);
+    if (!browseUri) {
+      vscode.window.showWarningMessage(`Could not determine a repository URL for '${getSourceLabel(source.uri)}'.`);
+      return;
+    }
+
+    await vscode.env.openExternal(browseUri);
+  });
+
+  const browseSourceSkills = vscode.commands.registerCommand(
+    "skillOrganizer.browseSourceSkills",
+    async (sourceArg?: SourceTreeNode | string) => {
+      const sourceId = await resolveSourceId(sourceArg, sourceManager);
+      if (!sourceId) {
+        return;
+      }
+
+      await runCommand(async () => {
+        const allSkills = await sourceManager.getSkills();
+        const sourceSkills = allSkills.filter((skill) => skill.sourceId === sourceId);
+
+        if (sourceSkills.length === 0) {
+          vscode.window.showInformationMessage("No skills were discovered for this source.");
+          return;
+        }
+
+        const enriched = await enrichSkillsWithMetadata(sourceSkills);
+        const workspaceEnabled = new Set(stateStore.getWorkspaceEnabled());
+        const globalDefaults = new Set(stateStore.getGlobalDefaults());
+        const frozenSkills = new Set(stateStore.getFrozenSkills());
+
+        const items = enriched
+          .map((skill) => {
+            const enabled = workspaceEnabled.has(skill.id);
+            const frozen = frozenSkills.has(skill.id);
+            const globalDefault = globalDefaults.has(skill.id);
+            const displayName = skill.metadata?.name?.trim() || skill.slug;
+            const summary = truncateText(skill.metadata?.description ?? "", 140);
+
+            const detailParts: string[] = [];
+            if (summary.length > 0) {
+              detailParts.push(summary);
+            }
+
+            const badges: string[] = [];
+            if (globalDefault) {
+              badges.push("global");
+            }
+            if (frozen) {
+              badges.push("locked");
+            }
+            if (badges.length > 0) {
+              detailParts.push(`Status: ${badges.join(" | ")}`);
+            }
+
+            return {
+              label: displayName,
+              description: skill.slug !== displayName ? skill.slug : undefined,
+              detail: detailParts.join(" • "),
+              picked: enabled,
+              value: skill
+            };
+          })
+          .sort((a, b) => a.label.localeCompare(b.label));
+
+        const selected = await vscode.window.showQuickPick(items, {
+          title: "Browse Source Skills",
+          placeHolder: "Search by title, slug, or description",
+          matchOnDescription: true,
+          matchOnDetail: true,
+          ignoreFocusOut: true,
+          canPickMany: true
+        });
+
+        if (!selected) {
+          return;
+        }
+
+        const selectedIds = new Set(selected.map((s) => s.value.id));
+        for (const item of items) {
+          const wasEnabled = workspaceEnabled.has(item.value.id);
+          const nowEnabled = selectedIds.has(item.value.id);
+          if (wasEnabled !== nowEnabled) {
+            await vscode.commands.executeCommand("skillOrganizer.toggleSkill", item.value.id);
+          }
+        }
+      });
+    }
+  );
 
   const toggleSkill = vscode.commands.registerCommand("skillOrganizer.toggleSkill", async (skillId?: string) => {
     const resolvedSkillId = await resolveSkillId(skillId, sourceManager);
@@ -464,7 +612,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       }
 
-      treeProvider.refresh();
+      refreshAllTreeViews();
     });
   });
 
@@ -508,7 +656,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           throw error;
         }
 
-        treeProvider.refresh();
+        refreshAllTreeViews();
         vscode.window.showInformationMessage(`Froze '${label}'. It cannot be enabled until unlocked.`);
       });
     }
@@ -533,7 +681,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         frozenSkills.delete(resolvedSkillId);
         await stateStore.saveFrozenSkills([...frozenSkills]);
-        treeProvider.refresh();
+        refreshAllTreeViews();
         vscode.window.showInformationMessage(`Unlocked '${label}'. You can enable it again.`);
       });
     }
@@ -553,7 +701,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         await stateStore.saveGlobalDefaults([...current]);
         await syncGlobalDefaultSkills(sourceManager, stateStore);
-        treeProvider.refresh();
+        refreshAllTreeViews();
       });
     }
   );
@@ -572,7 +720,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         await stateStore.saveGlobalDefaults([...current]);
         await syncGlobalDefaultSkills(sourceManager, stateStore);
-        treeProvider.refresh();
+        refreshAllTreeViews();
       });
     }
   );
@@ -589,7 +737,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const skill = await sourceManager.getSkillById(resolvedSkillId);
         const label = skill?.slug ?? resolvedSkillId;
         const confirm = await vscode.window.showWarningMessage(
-          `Remove '${label}' from Workspace Enabled?`,
+          `Remove '${label}' from Enabled from Sources?`,
           { modal: true },
           "Remove"
         );
@@ -602,7 +750,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         current.delete(resolvedSkillId);
         await stateStore.saveWorkspaceEnabled([...current]);
         await syncMaterializedEnabledSkills(sourceManager, stateStore);
-        treeProvider.refresh();
+        refreshAllTreeViews();
       });
     }
   );
@@ -632,7 +780,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         current.delete(resolvedSkillId);
         await stateStore.saveGlobalDefaults([...current]);
         await syncGlobalDefaultSkills(sourceManager, stateStore);
-        treeProvider.refresh();
+        refreshAllTreeViews();
       });
     }
   );
@@ -674,7 +822,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Also re-sync global skills to user profile
       await syncGlobalDefaultSkills(sourceManager, stateStore);
 
-      treeProvider.refresh();
+      refreshAllTreeViews();
     });
   });
 
@@ -686,7 +834,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       await markSkillAsManual(skillName);
-      treeProvider.refresh();
+      refreshAllTreeViews();
       vscode.window.showInformationMessage(`Detached '${skillName}' from source (protected from updates).`);
     });
   });
@@ -698,8 +846,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
+      const allSkills = await sourceManager.getSkills();
+      const normalizedSkillName = normalizeManagedSkillFolderName(skillName);
+      const hasSourceMatch = allSkills.some((skill) => normalizeManagedSkillFolderName(skill.slug) === normalizedSkillName);
+
+      if (!hasSourceMatch) {
+        vscode.window.showWarningMessage(
+          `Cannot reconnect '${skillName}' because no source skill currently matches it. Add/refresh the source first, or keep it detached as manual.`
+        );
+        return;
+      }
+
       await markSkillAsManaged(skillName);
-      treeProvider.refresh();
+      refreshAllTreeViews();
       vscode.window.showInformationMessage(`Reconnected '${skillName}' to source updates.`);
     });
   });
@@ -740,7 +899,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await uninstallMaterializedSkill(skillName, false);
         }
 
-        treeProvider.refresh();
+        refreshAllTreeViews();
         vscode.window.showInformationMessage(`Uninstalled '${skillName}'.`);
       });
     }
@@ -785,7 +944,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
 
         await updateManagedMaterializedSkill(skillName, [selectedSkill]);
-        treeProvider.refresh();
+        refreshAllTreeViews();
         vscode.window.showInformationMessage(`Updated managed skill '${skillName}'.`);
       });
     }
@@ -866,26 +1025,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const items = results.map((result) => {
         const enabled = workspaceEnabled.has(result.skill.id);
-        const statusIcon = enabled ? "$(check)" : "$(circle-large-outline)";
         const name = result.skill.metadata?.name ?? result.skill.slug;
         const description = result.reason ?? result.skill.metadata?.description ?? "";
         return {
-          label: `${statusIcon} ${name}`,
+          label: name,
           description: result.skill.slug !== name ? result.skill.slug : "",
           detail: description,
+          picked: enabled,
           value: result.skill
         };
       });
 
       const selected = await vscode.window.showQuickPick(items, {
         title: `Search results for "${query}"`,
-        placeHolder: "Select a skill to enable or disable",
+        placeHolder: "Check or uncheck skills to enable or disable",
         matchOnDescription: true,
-        matchOnDetail: true
+        matchOnDetail: true,
+        canPickMany: true
       });
 
       if (selected) {
-        await vscode.commands.executeCommand("skillOrganizer.toggleSkill", selected.value.id);
+        const selectedIds = new Set(selected.map((s) => s.value.id));
+        for (const item of items) {
+          const wasEnabled = workspaceEnabled.has(item.value.id);
+          const nowEnabled = selectedIds.has(item.value.id);
+          if (wasEnabled !== nowEnabled) {
+            await vscode.commands.executeCommand("skillOrganizer.toggleSkill", item.value.id);
+          }
+        }
       }
     });
   });
@@ -1115,12 +1282,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   context.subscriptions.push(
-    treeView,
     conflictDecorationProvider,
     addSource,
     addGitHubSource,
     addFromSkillsSh,
     chooseGitHubAccount,
+    browseSourceSkills,
+    openRepository,
     removeSource,
     refresh,
     explainMissingSkill,
@@ -1226,7 +1394,7 @@ async function resolveSkillId(
 }
 
 async function resolveSkillIdFromTreeArgument(
-  skillArg: string | SkillTreeNode | undefined,
+  skillArg: string | SkillTreeNode | MaterializedSkillTreeNode | undefined,
   sourceManager: SourceManager
 ): Promise<string | undefined> {
   if (typeof skillArg === "string") {
@@ -1240,15 +1408,27 @@ async function resolveSkillIdFromTreeArgument(
     }
   }
 
+  if (skillArg && typeof skillArg === "object" && "skillId" in skillArg) {
+    const maybeId = (skillArg as MaterializedSkillTreeNode).skillId;
+    if (typeof maybeId === "string" && maybeId.length > 0) {
+      return maybeId;
+    }
+  }
+
   return resolveSkillId(undefined, sourceManager);
 }
 
 async function resolveSourceId(
-  directSourceId: string | undefined,
-  sourceManager: SourceManager
+  sourceArg: SourceTreeNode | string | undefined,
+  sourceManager: SourceManager,
+  pickerTitle = "Select a source"
 ): Promise<string | undefined> {
-  if (directSourceId) {
-    return directSourceId;
+  if (typeof sourceArg === "string" && sourceArg.length > 0) {
+    return sourceArg;
+  }
+
+  if (sourceArg instanceof SourceTreeNode) {
+    return sourceArg.sourceId;
   }
 
   const sources = sourceManager.getSources();
@@ -1258,11 +1438,20 @@ async function resolveSourceId(
   }
 
   const selected = await vscode.window.showQuickPick(
-    sources.map((source) => ({ label: getSourceLabel(source.uri), description: source.uri, value: source.id })),
-    { title: "Select a source to remove" }
+    sources.map((source) => ({ label: getSourceLabel(source.uri), description: source.canonicalRepoUri ?? source.uri, value: source.id })),
+    { title: pickerTitle }
   );
 
   return selected?.value;
+}
+
+function truncateText(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}...`;
 }
 
 async function enableSkillInWorkspace(skillId: string, stateStore: StateStore, sourceManager: SourceManager): Promise<void> {
@@ -1504,6 +1693,28 @@ function getSourceLabel(uri: string): string {
   }
 
   return uri;
+}
+
+function getSourceBrowseUri(source: SkillSource): vscode.Uri | undefined {
+  const candidate = source.canonicalRepoUri ?? source.uri;
+
+  try {
+    const url = new URL(candidate);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return vscode.Uri.parse(url.toString());
+    }
+  } catch {
+    // Fall through to SSH handling.
+  }
+
+  const sshMatch = candidate.match(/^git@github\.com:([\w.-]+)\/([\w.-]+)(?:\.git)?$/i);
+  if (!sshMatch) {
+    return undefined;
+  }
+
+  const owner = sshMatch[1];
+  const repo = sshMatch[2].replace(/\.git$/i, "");
+  return vscode.Uri.parse(`https://github.com/${owner}/${repo}`);
 }
 
 async function openCopilotChat(): Promise<void> {

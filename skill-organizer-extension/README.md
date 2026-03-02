@@ -30,9 +30,8 @@ Import reusable skills from GitHub and `skills.sh`, choose what belongs in the c
 - Sync selected workspace skills into destination files.
 - Organized sections in the Skills view:
   - Sources
-  - Local Skills
-  - Workspace Enabled
-  - Global Defaults
+  - Active Skills
+  - Enabled Globally
 
 ## Quick Start
 
@@ -81,6 +80,7 @@ Skill Organizer tracks copied local folders in `.skill-organizer.manifest.json`:
 - Managed (`package`) skills are updated/replaced by sync.
 - Manual (`manual`) skills are protected from sync updates and removals.
 - Existing manifests migrate automatically by adding `manualFolders: []` when missing.
+- `Reconnect to Source` is only shown when a matching source skill exists for that local folder name.
 
 ### Protection Rules
 
@@ -88,6 +88,7 @@ Skill Organizer tracks copied local folders in `.skill-organizer.manifest.json`:
 - `Update Managed Skill` is only available for managed entries.
 - `Remove Local Skill` requires force confirmation for manual entries.
 - `Detach from Source` and `Reconnect to Source` move skills between manifest arrays.
+- Manual skills that never originated from a source stay manual until a matching source is added and refreshed.
 
 Most management actions are also available from the `...` title menu in the Skills view.
 

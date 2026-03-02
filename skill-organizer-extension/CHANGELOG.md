@@ -24,5 +24,5 @@ All notable changes to this project are documented in this file.
 - Materialization of enabled skills into `.github/skills` (copy mode).
 - Global default profile toggles and apply-to-workspace support.
 - Workspace sync flow for selected skills.
-- Tree view organization for Sources, Workspace Enabled, and Global Defaults.
+- Tree view organization for Sources, Enabled from Sources, and Global Defaults.
 - Commands for refresh, profile apply, workspace sync, and AGENTS.md extension.
