@@ -2,7 +2,7 @@
 
 A VS Code extension that turns AI skills into portable, version-controlled building blocks you can import, organize, share, and keep in sync across every workspace.
 
-![Skill Organizer preview](./skill-organizer-extension/media/marketplace-preview.png)
+![Skill Organizer preview](./skill-organizer-extension/media/extension-preview.png)
 
 ## The Problem
 
